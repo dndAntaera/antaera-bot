@@ -36,7 +36,7 @@ const health = {
   routes: [
     { method: 'GET', path: '/', auth: 'none', handler: () => json({ ok: true, service: 'sheets', now: now() }) },
     // With what sign-in is missing, by setting name, so a deploy can be checked from a browser.
-    { method: 'GET', path: '/health', auth: 'none', handler: ({ env }) => json({ ok: true, service: 'sheets', now: now(), signIn: signInSetup(env), discordBot: Boolean(env.DISCORD_PUBLIC_KEY) }) },
+    { method: 'GET', path: '/health', auth: 'none', handler: ({ env }) => json({ ok: true, service: 'sheets', now: now(), signIn: signInSetup(env), discordBot: Boolean(env.DISCORD_PUBLIC_KEY), dmNotes: Boolean(env.WIKI_WEBHOOK_URL && env.DISCORD_BOT_TOKEN) }) },
   ],
 };
 

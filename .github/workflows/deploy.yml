@@ -100,8 +100,10 @@ jobs:
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
           DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
           DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          WIKI_WEBHOOK_URL: ${{ secrets.WIKI_WEBHOOK_URL }}
         run: |
-          names='["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","ADMIN_GOOGLE_EMAILS","GM_GOOGLE_EMAILS","DISCORD_CLIENT_ID","DISCORD_CLIENT_SECRET","DISCORD_PUBLIC_KEY"]'
+          names='["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","ADMIN_GOOGLE_EMAILS","GM_GOOGLE_EMAILS","DISCORD_CLIENT_ID","DISCORD_CLIENT_SECRET","DISCORD_PUBLIC_KEY","DISCORD_BOT_TOKEN","WIKI_WEBHOOK_URL"]'
           file="$RUNNER_TEMP/worker-secrets.json"
           jq -n --argjson names "$names" '$ENV | with_entries(select((.key | IN($names[])) and (.value | length > 0)))' > "$file"
           if [ "$(jq length "$file")" -eq 0 ]; then

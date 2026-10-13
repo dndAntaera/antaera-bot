@@ -890,6 +890,32 @@ Setting it up, once:
    With a server id they appear there at once; without one they are global.
    Rerun it whenever `scripts/discord-commands.json` changes.
 
+#### /dmnotes, for the wiki
+
+The bot does one thing for the wiki as well. The wiki posts its update
+announcements to a channel through a webhook (`antaera_Wiki`,
+`.github/scripts/announce.py`). `/dmnotes` opens a form for the DM's Notes, and
+saving it writes them at the very top of the latest announcement, above the
+ping; running it again edits them, and an empty form takes them off
+(`worker/src/features/dmnotes.js`). It answers before the sheets-account check:
+it needs no sheets account, only a server **Administrator**. It is registered
+for Administrators only (`default_member_permissions` in
+`discord-commands.json`), and the Worker checks the permission again, since a
+server can loosen the first.
+
+It needs two more Worker secrets, sent by the deploy like the others:
+
+- `WIKI_WEBHOOK_URL` - the webhook the wiki posts through (the channel's
+  Integrations, Webhooks, Copy Webhook URL). Only it can edit those posts.
+- `DISCORD_BOT_TOKEN` - the bot token, to read the announcement channel for the
+  latest post. The bot must be **in** the server for that, not only its
+  commands: invite it once more with the `bot` scope as well as
+  `applications.commands`, with View Channels and Read Message History
+  (permissions `66560`).
+
+`/health` shows `"dmNotes": true` once both are set. Then rerun
+`register-discord-commands.py` as above, so Discord knows the new command.
+
 ### Profiles and settings
 
 Every account has a profile (`#/profile`) and a Settings page (`#/settings`),

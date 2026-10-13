@@ -92,5 +92,10 @@
         "autocomplete": true
       }
     ]
+  },
+  {
+    "name": "dmnotes",
+    "description": "Write the DM's Notes at the top of the wiki's latest announcement",
+    "default_member_permissions": "8"
   }
 ]

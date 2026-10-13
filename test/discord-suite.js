@@ -142,5 +142,67 @@ export function buildDiscordSuite() {
     t.ok(/None of your characters/.test(theirs.data.data.content));
   });
 
+  test('/dmnotes: admins write the DM’s Notes atop the wiki’s latest announcement', async (t) => {
+    // The wiki's webhook and channel, faked at the network for this test.
+    const ping = 'Ping: || <@&555> ||';
+    const posts = {
+      '30': { id: '30', channel_id: 'C', webhook_id: 'W', content: ping, embeds: [{ title: 'Antæra Wiki updated (test)' }] },
+      '20': { id: '20', channel_id: 'C', webhook_id: 'W', content: ping, embeds: [{ title: 'Antæra Wiki updated' }] },
+    };
+    const outer = globalThis.fetch;
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+      if (url.host !== 'wiki.discord.test') return outer(input, init);
+      if (url.pathname === '/api/webhooks/W/tok') return reply({ id: 'W', channel_id: 'C', guild_id: 'G' });
+      if (url.pathname === '/api/v10/channels/C/messages') {
+        return init.headers?.Authorization === 'Bot bot-token' ? reply(['30', '20'].map((id) => posts[id])) : reply({}, 401);
+      }
+      const m = url.pathname.match(/^\/api\/webhooks\/W\/tok\/messages\/(\d+)$/);
+      if (m && posts[m[1]]) {
+        if ((init.method || 'GET') === 'PATCH') Object.assign(posts[m[1]], JSON.parse(init.body));
+        return reply(posts[m[1]]);
+      }
+      return reply({ message: 'Unknown Message' }, 404);
+    };
+    try {
+      const wiki = { ...env, WIKI_WEBHOOK_URL: 'https://wiki.discord.test/api/webhooks/W/tok', DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://wiki.discord.test/api/v10' };
+      const admin = { user: { id: 'd-dm' }, permissions: '8' };
+      const open = (member, e = wiki) => handleInteraction(e, { type: 2, guild_id: 'G', member, data: { name: 'dmnotes' } });
+      const submit = (value, member = admin) => handleInteraction(wiki, { type: 5, guild_id: 'G', member, data: {
+        custom_id: 'dmnotes:20', components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'notes', value } }] } });
+
+      let r = await reply(await open({ user: { id: 'd-player' }, permissions: '1024' }));
+      t.ok(/Only server admins/.test(r.data.data.content) && r.data.data.flags === 64, 'a member who is not an admin is turned away, privately');
+      r = await reply(await submit('sneaky', { user: { id: 'd-player' }, permissions: '0' }));
+      t.ok(!posts['20'].content.includes('sneaky'), 'and so is a form they send anyway');
+      r = await reply(await open(admin, env));
+      t.ok(/not set up/.test(r.data.data.content), 'without its settings it says so');
+
+      r = await reply(await open(admin));
+      t.eq(r.data.type, 9, 'an admin gets the form, with no sheets account needed');
+      t.eq(r.data.data.custom_id, 'dmnotes:20', 'for the latest announcement, the test post passed over');
+
+      r = await reply(await submit('  The calendar has a home now.\nMore soon.  '));
+      t.eq(posts['20'].content, `### DM's Notes\n> The calendar has a home now.\n> More soon.\n\n${ping}`, 'the notes go at the very top, above the ping');
+      t.eq(posts['20'].allowed_mentions, { parse: [], roles: ['555'] }, 'the ping stays a mention, and nothing new can ping');
+      t.ok(/saved: https:\/\/discord.com\/channels\/G\/C\/20/.test(r.data.data.content), 'and the DM gets a link to the post');
+
+      r = await reply(await open(admin));
+      t.eq(r.data.data.components[0].component.value, 'The calendar has a home now.\nMore soon.', 'running it again shows the notes to edit');
+      await submit('Rewritten.');
+      t.eq(posts['20'].content, `### DM's Notes\n> Rewritten.\n\n${ping}`, 'new notes replace the old');
+      r = await reply(await submit('x'.repeat(1990)));
+      t.ok(/too long/.test(r.data.data.content) && posts['20'].content.includes('Rewritten.'), 'notes that would not fit change nothing');
+      r = await reply(await submit('   '));
+      t.eq(posts['20'].content, ping, 'an empty form takes them off');
+    } finally {
+      globalThis.fetch = outer;
+    }
+
+    const registered = await (await fetch(new URL('../scripts/discord-commands.json', import.meta.url))).json();
+    t.eq(registered.find((c) => c.name === 'dmnotes')?.default_member_permissions, '8', '/dmnotes is registered for Administrators only');
+  });
+
   return cases;
 }

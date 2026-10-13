@@ -17,6 +17,9 @@
 // Each has a one-letter shortcut that works the same: /r 1d6 is /roll 1d6,
 // /s is /sheet and /c is /character (SHORTCUTS below).
 //
+//   /dmnotes                   the DM's Notes on the wiki's latest announcement,
+//                              for server admins (features/dmnotes.js)
+//
 // A roll reads `character.rolls`, the snapshot the app writes each time a sheet
 // is saved (web/engine/rolls.js): the server does no arithmetic of its own.
 //
@@ -26,10 +29,12 @@
 import { json, now } from '../http.js';
 import { visibleCharacters } from './characters.js';
 import { rollFor, rollChoices } from '../../../web/engine/rolls.js';
+import { isDmNotes, dmNotes } from './dmnotes.js';
 
 const PING = 1;
 const COMMAND = 2;
 const AUTOCOMPLETE = 4;
+const MODAL_SUBMIT = 5;
 const PONG = 1;
 const MESSAGE = 4;
 const CHOICES = 8;
@@ -192,6 +197,10 @@ async function interactions({ env, request }) {
 /** An interaction whose signature has been checked. */
 export async function handleInteraction(env, interaction) {
   if (interaction.type === PING) return json({ type: PONG });
+  // A server admin's command, not a player's: no sheets account needed.
+  if ((interaction.type === COMMAND || interaction.type === MODAL_SUBMIT) && isDmNotes(interaction)) {
+    return dmNotes(env, interaction);
+  }
   const discordId = interaction.member?.user?.id || interaction.user?.id;
   const account = await accountFor(env, discordId);
   if (interaction.type === AUTOCOMPLETE) return autocomplete(env, interaction, account);
