@@ -913,8 +913,18 @@ It needs two more Worker secrets, sent by the deploy like the others:
   `applications.commands`, with View Channels and Read Message History
   (permissions `66560`).
 
-`/health` shows `"dmNotes": true` once both are set. Then rerun
-`register-discord-commands.py` as above, so Discord knows the new command.
+`/health` shows `"dmNotes": true` once both are set.
+
+The bot is added to the server with this link, which grants exactly those two
+permissions and both scopes:
+
+    https://discord.com/oauth2/authorize?client_id=1548596777048080556&scope=bot+applications.commands&permissions=66560
+
+With `DISCORD_BOT_TOKEN` in the repository's secrets, the deploy does steps 3
+and 5 above itself on every push: it sets the Interactions Endpoint URL and
+registers `discord-commands.json` on the server the wiki's webhook posts to.
+Until the bot is in that server, that step says so in the run's log and the
+rest of the deploy goes ahead.
 
 ### Profiles and settings
 

@@ -113,6 +113,20 @@ jobs:
             npx --yes wrangler@4 secret bulk "$file" --config worker/wrangler.toml
           fi
           rm -f "$file"
+      # Tells Discord where the bot answers and registers its commands, on the
+      # server the wiki announces to. Needs the bot in that server; until it
+      # is, this says so and the rest of the deploy still stands.
+      - name: Point Discord at the bot and register its commands
+        if: steps.check.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_APPLICATION_ID: "1548596777048080556"
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          WIKI_WEBHOOK_URL: ${{ secrets.WIKI_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_BOT_TOKEN" ]; then echo "No DISCORD_BOT_TOKEN secret; commands not registered."; exit 0; fi
+          python3 scripts/register-discord-commands.py \
+            --endpoint https://antaera-sheets.antaerasheets.workers.dev/discord/interactions
       - name: Say why it was skipped
         if: steps.check.outputs.ready != 'true'
         run: echo "No CLOUDFLARE_API_TOKEN secret, so the Worker was not deployed. See MAINTAINING.md."
