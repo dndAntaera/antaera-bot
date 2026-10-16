@@ -3,7 +3,7 @@
 A character creator for the 3.5 edition System Reference Document — build a
 character, and the sheet keeps the arithmetic.
 
-**Open it at [dndantaera.github.io/sheets](https://dndantaera.github.io/sheets)**
+**Open it at [dndantaera.github.io/antaera-bot](https://dndantaera.github.io/antaera-bot)**
 
 ## Two rulesets, SRD for everyone
 

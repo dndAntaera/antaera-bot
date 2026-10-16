@@ -22,7 +22,7 @@ migrations_dir = "migrations"
 # Where the sheets are served from. The Worker only answers this origin (and
 # localhost, for development), and sends players back here after sign-in.
 SITE_ORIGIN = "https://dndantaera.github.io"
-SITE_PATH = "/sheets/"
+SITE_PATH = "/antaera-bot/"
 
 # The app wrapped for a phone (see MAINTAINING.md, "The mobile app"). Leave
 # both empty until there is one. APP_ORIGINS are the origins its web view

@@ -140,7 +140,7 @@ function hook(env, suffix) {
 }
 
 async function discord(method, url, body = null, botToken = null) {
-  const headers = { 'User-Agent': 'DiscordBot (https://github.com/dndAntaera/sheets, 1.0)' };
+  const headers = { 'User-Agent': 'DiscordBot (https://github.com/dndAntaera/antaera-bot, 1.0)' };
   if (botToken) headers.Authorization = `Bot ${botToken}`;
   if (body) headers['Content-Type'] = 'application/json';
   const response = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });

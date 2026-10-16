@@ -683,7 +683,7 @@ Three things keep the first load short and the next ones shorter:
 
 | Half | Where | Deployed by |
 | --- | --- | --- |
-| The app (`web/`) | GitHub Pages, `dndantaera.github.io/sheets` | `.github/workflows/deploy.yml`, on push to `main` |
+| The app (`web/`) | GitHub Pages, `dndantaera.github.io/antaera-bot` | `.github/workflows/deploy.yml`, on push to `main` |
 | The server (`worker/`) | Cloudflare Workers + D1 | the same workflow, if its secrets are set |
 
 Only `web/` is published. The repository must be named **`sheets`** in the
@@ -1020,7 +1020,7 @@ character as a player, those characters in it, and gestalt as it was.
    `GOOGLE_CLIENT_SECRET`, `ADMIN_GOOGLE_EMAILS`, `GM_GOOGLE_EMAILS`,
    `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` set as a repository Actions
    secret is sent to the Worker on every deploy (`gh secret set NAME --repo
-   dndAntaera/sheets`, then push or run the workflow). Those not set in GitHub
+   dndAntaera/antaera-bot`, then push or run the workflow). Those not set in GitHub
    are left as the Worker has them.
    Name at least one admin. With Google, that is your address in the
    `ADMIN_GOOGLE_EMAILS` **secret** (`GM_GOOGLE_EMAILS` likewise) - a secret, so
