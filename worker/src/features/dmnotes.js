@@ -1,9 +1,9 @@
 // /dmnotes: the DM's own thoughts at the top of the wiki's latest announcement.
 //
 // The wiki (antaera_Wiki, .github/scripts/announce.py) posts its update
-// announcements through a Discord webhook. /dmnotes opens a form for the DM's
-// Notes; saving it writes them into that message's text, above the ping, and
-// running it again edits them. An empty form takes them off. The wiki only
+// announcements as this bot (through a webhook, before it could). /dmnotes
+// opens a form for the DM's Notes; saving it writes them into that message's
+// text, above the ping, and running it again edits them. An empty form takes them off. The wiki only
 // ever edits the announcement's embed, so its later edits leave the notes be.
 //
 // Only a server admin can use it: the command is registered for the
@@ -11,11 +11,12 @@
 // permission is checked again here, since a server can loosen the first.
 //
 // Settings, both secrets:
-//   WIKI_WEBHOOK_URL    the webhook the wiki posts through; only it can edit
-//                       those posts
-//   DISCORD_BOT_TOKEN   to read the announcement channel for the latest post;
-//                       the bot must be in the server with View Channel and
-//                       Read Message History there
+//   WIKI_WEBHOOK_URL    the wiki's webhook: it names the announcement channel,
+//                       and only it can edit the posts it made
+//   DISCORD_BOT_TOKEN   to read the announcement channel for the latest post,
+//                       and to edit the bot's own; the bot must be in the
+//                       server with View Channel and Read Message History
+// and DISCORD_APPLICATION_ID, a var in wrangler.toml.
 // Without them the command says it is not set up.
 
 import { json } from '../http.js';
@@ -79,15 +80,18 @@ async function save(env, interaction) {
   const id = interaction.data.custom_id.slice(PREFIX.length);
   if (!/^\d{1,25}$/.test(id)) return say('That form is not one this bot made.');
   const notes = String(field(interaction.data.components, 'notes') || '').trim();
-  const url = hook(env, `/messages/${id}`);
-  const post = await discord('GET', url);
+  const webhook = await discord('GET', hook(env, ''));
+  const botUrl = `${env.DISCORD_API || API}/channels/${webhook.channel_id}/messages/${id}`;
+  const post = await discord('GET', botUrl, null, env.DISCORD_BOT_TOKEN);
   const content = withNotes(post.content, notes);
   if (content.length > 2000) return say(`Those notes are ${content.length - 2000} characters too long; nothing was changed.`);
+  // A post is edited by whoever made it: the webhook its own, the bot its own.
+  const [url, token] = post.webhook_id ? [hook(env, `/messages/${id}`), null] : [botUrl, env.DISCORD_BOT_TOKEN];
   // Editing never pings; the mentions already there are named so they stay mentions.
   await discord('PATCH', url, {
     content,
     allowed_mentions: { parse: [], roles: [...content.matchAll(/<@&(\d+)>/g)].map((m) => m[1]) },
-  });
+  }, token);
   const link = `https://discord.com/channels/${interaction.guild_id}/${post.channel_id}/${post.id}`;
   return say(notes ? `DM's Notes saved: ${link}` : `DM's Notes removed: ${link}`);
 }
@@ -96,9 +100,11 @@ async function latestAnnouncement(env) {
   const webhook = await discord('GET', hook(env, ''));
   const messages = await discord('GET', `${env.DISCORD_API || API}/channels/${webhook.channel_id}/messages?limit=50`,
     null, env.DISCORD_BOT_TOKEN);
-  // Newest first. The wiki's test posts come through the same webhook; skip them.
-  return messages.find((m) => m.webhook_id === webhook.id
-    && m.embeds?.[0]?.title && !m.embeds[0].title.endsWith('(test)')) || null;
+  // Newest first. The wiki posts as this bot, or (before it did) through the
+  // webhook. Its announcements are titled "... updated"; the bot's rolls and
+  // the wiki's test posts are passed over.
+  const poster = (m) => m.webhook_id === webhook.id || (!m.webhook_id && m.author?.id === env.DISCORD_APPLICATION_ID);
+  return messages.find((m) => poster(m) && / updated$/.test(m.embeds?.[0]?.title || '')) || null;
 }
 
 // The notes sit above everything else in the message's text:

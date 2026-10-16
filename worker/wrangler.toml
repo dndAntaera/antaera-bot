@@ -55,6 +55,10 @@ SIGN_IN_WITH = "google,discord"
 ADMIN_DISCORD_IDS = "176820142347517952"     # Discord user ids, comma separated
 GM_DISCORD_IDS = ""
 
+# The Discord application the bot is. Its id is its bot user's too, which is
+# how /dmnotes knows the wiki announcements the bot posted.
+DISCORD_APPLICATION_ID = "1548596777048080556"
+
 # Secrets, not vars. Set whichever providers you use; a provider with no
 # secrets simply does not appear on the sign-in menu.
 #   wrangler secret put GOOGLE_CLIENT_ID --config worker/wrangler.toml

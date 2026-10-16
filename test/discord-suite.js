@@ -149,6 +149,7 @@ export function buildDiscordSuite() {
       '30': { id: '30', channel_id: 'C', webhook_id: 'W', content: ping, embeds: [{ title: 'Antæra Wiki updated (test)' }] },
       '20': { id: '20', channel_id: 'C', webhook_id: 'W', content: ping, embeds: [{ title: 'Antæra Wiki updated' }] },
     };
+    let order = ['30', '20']; // newest first
     const outer = globalThis.fetch;
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input instanceof Request ? input.url : input));
@@ -156,21 +157,32 @@ export function buildDiscordSuite() {
       if (url.host !== 'wiki.discord.test') return outer(input, init);
       if (url.pathname === '/api/webhooks/W/tok') return reply({ id: 'W', channel_id: 'C', guild_id: 'G' });
       if (url.pathname === '/api/v10/channels/C/messages') {
-        return init.headers?.Authorization === 'Bot bot-token' ? reply(['30', '20'].map((id) => posts[id])) : reply({}, 401);
+        return init.headers?.Authorization === 'Bot bot-token' ? reply(order.map((id) => posts[id])) : reply({}, 401);
+      }
+      // The bot reads any post, and edits only its own; the webhook edits only its own.
+      const bot = url.pathname.match(/^\/api\/v10\/channels\/C\/messages\/(\d+)$/);
+      if (bot && posts[bot[1]]) {
+        if (init.headers?.Authorization !== 'Bot bot-token') return reply({}, 401);
+        if ((init.method || 'GET') === 'PATCH') {
+          if (posts[bot[1]].webhook_id) return reply({ message: 'Cannot edit a message authored by another user' }, 403);
+          Object.assign(posts[bot[1]], JSON.parse(init.body));
+        }
+        return reply(posts[bot[1]]);
       }
       const m = url.pathname.match(/^\/api\/webhooks\/W\/tok\/messages\/(\d+)$/);
       if (m && posts[m[1]]) {
+        if ((init.method || 'GET') === 'PATCH' && !posts[m[1]].webhook_id) return reply({ message: 'Unknown Webhook' }, 403);
         if ((init.method || 'GET') === 'PATCH') Object.assign(posts[m[1]], JSON.parse(init.body));
         return reply(posts[m[1]]);
       }
       return reply({ message: 'Unknown Message' }, 404);
     };
     try {
-      const wiki = { ...env, WIKI_WEBHOOK_URL: 'https://wiki.discord.test/api/webhooks/W/tok', DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://wiki.discord.test/api/v10' };
+      const wiki = { ...env, DISCORD_APPLICATION_ID: 'APP', WIKI_WEBHOOK_URL: 'https://wiki.discord.test/api/webhooks/W/tok', DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://wiki.discord.test/api/v10' };
       const admin = { user: { id: 'd-dm' }, permissions: '8' };
       const open = (member, e = wiki) => handleInteraction(e, { type: 2, guild_id: 'G', member, data: { name: 'dmnotes' } });
-      const submit = (value, member = admin) => handleInteraction(wiki, { type: 5, guild_id: 'G', member, data: {
-        custom_id: 'dmnotes:20', components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'notes', value } }] } });
+      const submit = (value, member = admin, id = '20') => handleInteraction(wiki, { type: 5, guild_id: 'G', member, data: {
+        custom_id: `dmnotes:${id}`, components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'notes', value } }] } });
 
       let r = await reply(await open({ user: { id: 'd-player' }, permissions: '1024' }));
       t.ok(/Only server admins/.test(r.data.data.content) && r.data.data.flags === 64, 'a member who is not an admin is turned away, privately');
@@ -196,6 +208,18 @@ export function buildDiscordSuite() {
       t.ok(/too long/.test(r.data.data.content) && posts['20'].content.includes('Rewritten.'), 'notes that would not fit change nothing');
       r = await reply(await submit('   '));
       t.eq(posts['20'].content, ping, 'an empty form takes them off');
+
+      // Announcements the bot itself posts, as the wiki does now.
+      posts['40'] = { id: '40', channel_id: 'C', author: { id: 'APP' }, content: ping, embeds: [{ title: 'Antæra Wiki updated' }] };
+      posts['50'] = { id: '50', channel_id: 'C', author: { id: 'APP' }, content: '', embeds: [{ title: 'Grukk: Climb' }] };
+      order = ['50', '40', '30', '20'];
+      r = await reply(await open(admin));
+      t.eq(r.data.data.custom_id, 'dmnotes:40', 'the bot’s own announcement is found, its rolls passed over');
+      await submit('Posted by the bot.', admin, '40');
+      t.eq(posts['40'].content, `### DM's Notes
+> Posted by the bot.
+
+${ping}`, 'and the bot edits it itself');
     } finally {
       globalThis.fetch = outer;
     }
