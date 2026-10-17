@@ -328,6 +328,17 @@ const LIST_LABELS = {
  * }
  */
 export function featSlots(character, derived, rules, opts = {}) {
+  const out = slotsFor(character, derived, rules, opts);
+  // A custom character's feats are the player's to choose: any feat fits any
+  // slot, and no prerequisite is asked of it.
+  if (isCustom(character)) for (const slot of out.slots) Object.assign(slot, { ignorePrerequisites: true, free: true });
+  return out;
+}
+
+/** Whether a character is a custom one: built from what its player enters, not the rules' lists. */
+export const isCustom = (character) => Boolean(character?.meta?.custom);
+
+function slotsFor(character, derived, rules, opts = {}) {
   const slots = [];
   const granted = [];
   const summary = derived.summary;
@@ -448,7 +459,9 @@ export function featPlan(character, derived, rules, opts = {}) {
     const state = states.get(key) || stateAtLevel(character, derived, rules, slot.level, before);
     states.set(key, state);
     const check = featEligibility(rule, state, featRules, { choice: feat.choice, ignorePrerequisites: slot.ignorePrerequisites });
-    if (slot.options && !slot.options.some((o) => lower(o) === lower(feat.name))) {
+    if (slot.free) {
+      // Any feat fits a custom character's slot.
+    } else if (slot.options && !slot.options.some((o) => lower(o) === lower(feat.name))) {
       check.ok = false;
       check.unmet.push(`this slot takes ${slot.options.join(' or ')}`);
     } else if (slot.list && rule && !onBonusList(slot.list, rule)) {
@@ -480,11 +493,12 @@ export function featOptions(slot, plan, character, derived, rules, list) {
   const heldNames = new Set(plan.held.map((f) => lower(f.name)));
   const mine = slot.feat ? lower(slot.feat.name) : null;
   let pool = list;
-  if (slot.options) pool = list.filter((r) => slot.options.some((o) => lower(o) === lower(r.name)));
+  if (slot.free) pool = list;
+  else if (slot.options) pool = list.filter((r) => slot.options.some((o) => lower(o) === lower(r.name)));
   else if (slot.list) pool = list.filter((r) => onBonusList(slot.list, r));
 
   // A ranger's combat style: the path chosen at 2nd level holds at 6th and 11th.
-  if (slot.samePath && slot.options) {
+  if (slot.samePath && slot.options && !slot.free) {
     const first = plan.slots.find((s) => s.className === slot.className && s.samePath && s.id !== slot.id && s.level < slot.level && s.feat);
     if (first) {
       const path = (derived.index.classByName.get(slot.className)?.bonusFeats?.choices?.['2'] || []).findIndex((o) => lower(o) === lower(first.feat.name));

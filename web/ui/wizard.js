@@ -62,7 +62,7 @@ export const WIZARD_STEPS = [
       'Your class decides your hit die, how fast your attack bonus and saves grow, and how many skill points you get.',
       'Choose a class for each level - typing narrows the list. A different class on a row is multiclassing. With gestalt switched on (under Concept), every level takes a second class as well.',
     ],
-    panels: ['levels', 'classChoices'],
+    panels: ['levels', 'customClasses', 'classChoices'],
     notices: ['levels'],
     catalog: 'class',
   },
@@ -258,7 +258,7 @@ export function wizardPage(app, key, ways) {
   const root = h('div.wizard',
     h('div.wizard-top',
       h('div',
-        h('p.eyebrow', { text: revising ? 'Changing a finished character' : `New ${app.rules.ruleset.shortName} character` }),
+        h('p.eyebrow', { text: revising ? 'Changing a finished character' : app.character.meta?.custom ? 'New custom character' : `New ${app.rules.ruleset.shortName} character` }),
         h('h1.wizard-title', { text: revising ? `Change ${app.character.name || 'this character'}` : 'Create a character' })),
       revising
         ? h('button.btn.subtle.hint', { type: 'button', onclick: ways.discard, title: 'Put every choice back as it was, and return to the sheet.' }, 'Discard changes')
@@ -326,6 +326,9 @@ function conceptStep(app, ways) {
   const concept = c.concept || {};
   const small = (label, key, placeholder) => labelled(label, field(`concept.${key}`, concept[key], { placeholder }));
   return h('div.wizard-body',
+    c.meta?.custom ? h('section.panel.wizard-custom', h('div.panel-body',
+      h('h3', { text: 'A custom character' }),
+      h('p', { text: 'Everything this character is built of can be entered by hand: a race of your own with its traits, classes you define with their hit die, attack bonus, saves and features, ability scores as you set them, and any feat in any slot. The SRD and your User Content are still there to choose from. Skills work as they always do.' }))) : null,
     h('section.panel', h('div.panel-body',
       row(labelled('Character name', field('name', c.name, { placeholder: 'What they are called', className: 'grow wizard-name-field' }), { wide: true })),
       row(
@@ -395,7 +398,9 @@ function raceStep(app, ways) {
             total('Level adj.', 'race.la', { format: 'signed' }),
             total('Favored class', 'race.favoredClass'),
             h('p.hint.race-traits', { text: app.derived.race.traits }))
-          : h('p.hint', { text: `${chosen} is not a race the sheet knows. Its size, speed and adjustments can be entered on the full sheet, or written up under User Content.` }))
+          : h('div.race-typed',
+            h('p.hint', { text: `${chosen} is not a race the sheet knows. Its type, size, speed, adjustments and traits can be entered on the full sheet, or written up under User Content.` }),
+            ways.typedRace?.()))
         : h('p.hint', { text: 'No race chosen yet.' }))));
 }
 

@@ -69,13 +69,15 @@ function exampleSheet() {
  * @param main   the page's main element
  * @param app    the app state (user, providers, serverDown)
  * @param ways   what the page can offer, from app.js:
- *               { signedIn, needsSignIn, signInButtons(), newCharacter(), rulesetName }
+ *               { signedIn, needsSignIn, signInButtons(), newCharacter(),
+ *                 newCustomCharacter(), rulesetName }
  */
 export function showLanding(main, app, ways) {
   const cta = () => {
     if (ways.signedIn || !ways.needsSignIn) {
       return h('div.landing-cta',
         h('button.btn.primary', { type: 'button', onclick: ways.newCharacter }, `New ${ways.rulesetName} character`),
+        ways.newCustomCharacter ? h('button.btn.ghost', { type: 'button', onclick: ways.newCustomCharacter, title: 'Enter everything yourself: your own race, classes and scores, any feat in any slot.' }, 'Custom character') : null,
         ways.signedIn ? h('a.btn.ghost', { href: '#/characters' }, 'Your characters') : null);
     }
     if (app.serverDown) {

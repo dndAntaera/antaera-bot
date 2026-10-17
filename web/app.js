@@ -24,6 +24,7 @@ import {
   identityPanel, levelsPanel, abilitiesPanel, combatPanel, skillsPanel,
   houserulesPanel, textPanel, trackersPanel, hitPointsPanel, startingWealthPanel,
   effectsPanel, contentPanel, paintEffects, paintConditions, paintContent, paintAcTable,
+  customClassesPanel, blankClassFor,
 } from './ui/sheet.js';
 import { referenceNow, lookUp } from './reference.js';
 import { SHEET_PAGES, pageFor, pageForNotice, sheetTabs } from './ui/sheet-pages.js';
@@ -57,6 +58,7 @@ const PANELS = {
     h('div.panel-body', variantsStrip())),
   identity: identityPanel,
   levels: levelsPanel,
+  customClasses: customClassesPanel,
   abilities: abilitiesPanel,
   combat: combatPanel,
   attackCards: fromPart('inventory', (a, m) => m.attackCardsPanel(a)),
@@ -719,6 +721,7 @@ function showHome() {
     needsSignIn: remote.enabled(),
     signInButtons,
     newCharacter: () => createCharacter(ruleset),
+    newCustomCharacter: () => createCharacter(ruleset, { custom: true }),
     rulesetName: app.baseRules.rulesets[ruleset].shortName,
   })).catch(() => {});
 }
@@ -779,6 +782,10 @@ function newCharacterPanel() {
       h('p.ruleset-blurb', { text: rs.description })),
     h('div.roster-actions',
       button(`New ${rs.shortName} character`, () => createCharacter(chosen)),
+      button('New custom character', () => createCharacter(chosen, { custom: true }), {
+        subtle: true,
+        title: 'Enter everything yourself: your own race, classes and scores, any feat in any slot. The SRD and your User Content are still there to choose from.',
+      }),
       importButton()));
 }
 
@@ -825,12 +832,21 @@ function rosterRow(row) {
     }, { subtle: true, danger: true }));
 }
 
-function createCharacter(rulesetId) {
+/**
+ * A new character, into the creator. A custom one (`opts.custom`) is built
+ * from what its player enters: its scores typed in, its own race and classes,
+ * any feat in any slot (engine/feats.js).
+ */
+function createCharacter(rulesetId, opts = {}) {
   if (!canCreate() || !publicRulesets().includes(rulesetId)) return;
   const rules = withRuleset(app.baseRules, rulesetId);
   const character = blankCharacter(rules);
   character.id = newId();
   character.meta = { ...character.meta, created: new Date().toISOString(), owner: app.user?.id || null, wizard: { step: WIZARD_STEPS[0].key } };
+  if (opts.custom) {
+    character.meta.custom = true;
+    character.abilities = { ...(character.abilities || {}), method: 'manual' };
+  }
   local.save(toFile(character));
   location.hash = `#/create/${character.id}/${WIZARD_STEPS[0].key}`;
 }
@@ -1235,7 +1251,8 @@ const RESHAPES = [
   [/^(feats|features|wealth\.items)\.\d+\.uses$/, ['trackers', 'abilitiesList']],
   [/^(feats|features|race|templates)\.(\d+\.)?specials\.\d+\.(name|type|uses|usesPer|level|spellLevel|dcAbility|save)$/, ['trackers', 'abilitiesList']],
   [/^activeSpells\.\d+\.on$/, ['abilitiesList', 'trackers']],
-  [/^levels\.\d+\.[ab]$/, ['casting', 'classChoices', 'skills']],
+  [/^levels\.\d+\.[ab]$/, ['casting', 'classChoices', 'skills', 'customClasses']],
+  [/^content\.classes\.\d+\.(hd|bab|saves|skillPoints|classSkills|casting)/, ['levels', 'skills', 'casting', 'feats']],
 ];
 
 function onEdit(path, value, el, ev) {
@@ -1260,6 +1277,13 @@ function onEdit(path, value, el, ev) {
       embedded = true;
       break;
     }
+  }
+
+  // A custom character's class that nothing defines is written onto it, to be filled in.
+  if (app.character.meta?.custom && ev.type === 'change' && /^levels\.\d+\.[ab]$/.test(path) && value) {
+    const known = app.rules.classes.classes.some((x) => x.name === value)
+      || (app.character.content?.classes || []).some((x) => x.name === value);
+    if (!known) embed(app.character, 'class', blankClassFor(value));
   }
 
   recompute();
