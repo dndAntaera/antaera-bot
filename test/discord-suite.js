@@ -228,5 +228,55 @@ ${ping}`, 'and the bot edits it itself');
     t.eq(registered.find((c) => c.name === 'dmnotes')?.default_member_permissions, '8', '/dmnotes is registered for Administrators only');
   });
 
+  test('/embedmsg: an admin picks a channel, writes the message, and the bot posts it as an embed', async (t) => {
+    const sent = [];
+    const outer = globalThis.fetch;
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+      if (url.host !== 'bot.discord.test') return outer(input, init);
+      const m = url.pathname.match(/^\/api\/v10\/channels\/(\d+)\/messages$/);
+      if (m && init.method === 'POST' && init.headers?.Authorization === 'Bot bot-token') {
+        if (m[1] === '666') return reply({ message: 'Missing Permissions' }, 403);
+        sent.push({ channel: m[1], ...JSON.parse(init.body) });
+        return reply({ id: '900', channel_id: m[1] });
+      }
+      return reply({ message: 'no route' }, 404);
+    };
+    try {
+      const bot = { ...env, DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://bot.discord.test/api/v10' };
+      const admin = { user: { id: 'd-dm' }, permissions: '8' };
+      const open = (member, e = bot) => handleInteraction(e, { type: 2, guild_id: 'G', member, data: { name: 'embedmsg', options: [{ name: 'channel', type: 7, value: '555' }] } });
+      const submit = (value, channel = '555', member = admin) => handleInteraction(bot, { type: 5, guild_id: 'G', member, data: {
+        custom_id: `embedmsg:${channel}`, components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'message', value } }] } });
+
+      let r = await reply(await open({ user: { id: 'd-player' }, permissions: '1024' }));
+      t.ok(/Only server admins/.test(r.data.data.content) && r.data.data.flags === 64, 'a member who is not an admin is turned away, privately');
+      await submit('sneaky', '555', { user: { id: 'd-player' }, permissions: '0' });
+      t.eq(sent.length, 0, 'and a form they send anyway posts nothing');
+      r = await reply(await open(admin, env));
+      t.ok(/not set up/.test(r.data.data.content), 'without the bot token it says so');
+
+      r = await reply(await open(admin));
+      t.eq(r.data.type, 9, 'the channel chosen, the form for the message opens');
+      t.eq(r.data.data.custom_id, 'embedmsg:555', 'carrying the channel');
+
+      const rules = '**Server Rules**\n**1)** Be Respectful To Others @everyone';
+      r = await reply(await submit(`  ${rules}  `));
+      t.eq(sent[0], { channel: '555', embeds: [{ description: rules, color: 0x7c5cff }], allowed_mentions: { parse: [] } }, 'the message goes up as an embed in that channel, pinging no one');
+      t.ok(/Posted in <#555>: https:\/\/discord.com\/channels\/G\/555\/900/.test(r.data.data.content) && r.data.data.flags === 64, 'and the admin is told where, privately');
+
+      r = await reply(await submit('Hello', '666'));
+      t.ok(/can't post in <#666>/.test(r.data.data.content), 'a channel the bot may not post in is named, with what it needs');
+    } finally {
+      globalThis.fetch = outer;
+    }
+
+    const registered = await (await fetch(new URL('../scripts/discord-commands.json', import.meta.url))).json();
+    const command = registered.find((c) => c.name === 'embedmsg');
+    t.eq(command?.default_member_permissions, '8', '/embedmsg is registered for Administrators only');
+    t.eq(command?.options?.[0]?.type, 7, 'and asks for a channel');
+  });
+
   return cases;
 }

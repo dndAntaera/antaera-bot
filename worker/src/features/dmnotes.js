@@ -31,12 +31,12 @@ const HEADER = "### DM's Notes";
 const MAX_NOTES = 1800;
 const PREFIX = 'dmnotes:';
 
-const say = (content) => json({ type: MESSAGE, data: { content, flags: EPHEMERAL, allowed_mentions: { parse: [] } } });
+export const say = (content) => json({ type: MESSAGE, data: { content, flags: EPHEMERAL, allowed_mentions: { parse: [] } } });
 
 export const isDmNotes = (interaction) => interaction.data?.name === 'dmnotes'
   || String(interaction.data?.custom_id || '').startsWith(PREFIX);
 
-function isAdmin(interaction) {
+export function isAdmin(interaction) {
   try {
     return (BigInt(interaction.member?.permissions ?? 0) & ADMINISTRATOR) === ADMINISTRATOR;
   } catch {
@@ -130,7 +130,7 @@ export function withNotes(content, notes) {
 }
 
 // A form's value, in a Label or in the Action Row older forms used.
-function field(components, id) {
+export function field(components, id) {
   for (const c of components || []) {
     if (c.custom_id === id) return c.value;
     const found = field([c.component, ...(c.components || [])].filter(Boolean), id);
@@ -145,7 +145,7 @@ function hook(env, suffix) {
   return url.toString();
 }
 
-async function discord(method, url, body = null, botToken = null) {
+export async function discord(method, url, body = null, botToken = null) {
   const headers = { 'User-Agent': 'DiscordBot (https://github.com/dndAntaera/antaera-bot, 1.0)' };
   if (botToken) headers.Authorization = `Bot ${botToken}`;
   if (body) headers['Content-Type'] = 'application/json';

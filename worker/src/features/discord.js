@@ -19,6 +19,8 @@
 //
 //   /dmnotes                   the DM's Notes on the wiki's latest announcement,
 //                              for server admins (features/dmnotes.js)
+//   /embedmsg channel          a message from the bot, as an embed, in that
+//                              channel, for server admins (features/embedmsg.js)
 //
 // A roll reads `character.rolls`, the snapshot the app writes each time a sheet
 // is saved (web/engine/rolls.js): the server does no arithmetic of its own.
@@ -30,6 +32,7 @@ import { json, now } from '../http.js';
 import { visibleCharacters } from './characters.js';
 import { rollFor, rollChoices } from '../../../web/engine/rolls.js';
 import { isDmNotes, dmNotes } from './dmnotes.js';
+import { isEmbedMsg, embedMsg } from './embedmsg.js';
 
 const PING = 1;
 const COMMAND = 2;
@@ -197,9 +200,12 @@ async function interactions({ env, request }) {
 /** An interaction whose signature has been checked. */
 export async function handleInteraction(env, interaction) {
   if (interaction.type === PING) return json({ type: PONG });
-  // A server admin's command, not a player's: no sheets account needed.
+  // Server admins' commands, not players': no sheets account needed.
   if ((interaction.type === COMMAND || interaction.type === MODAL_SUBMIT) && isDmNotes(interaction)) {
     return dmNotes(env, interaction);
+  }
+  if ((interaction.type === COMMAND || interaction.type === MODAL_SUBMIT) && isEmbedMsg(interaction)) {
+    return embedMsg(env, interaction);
   }
   const discordId = interaction.member?.user?.id || interaction.user?.id;
   const account = await accountFor(env, discordId);
