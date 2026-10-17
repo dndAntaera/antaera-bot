@@ -8,7 +8,7 @@ import { fail, json, noContent, now } from '../http.js';
 
 export const MAX_ENTRY_BYTES = 128 * 1024;
 const MAX_ENTRIES_PER_ACCOUNT = 2000;
-const CONTENT_KINDS = new Set(['race', 'class', 'feat', 'skill', 'item', 'template', 'feature']);
+const CONTENT_KINDS = new Set(['race', 'class', 'feat', 'skill', 'item', 'template', 'feature', 'spell']);
 
 /**
  * An entry as it arrives, checked: a kind the app knows, and an `updated`

@@ -33,7 +33,7 @@ export const SHEET_MODULES = [
   { key: 'inventory', label: 'Inventory and equipment', fields: ['wealth', 'equipment', 'weapons'] },
   { key: 'feats', label: 'Feats, traits and features', fields: ['feats', 'featSlots', 'features', 'traits', 'flaws'] },
   { key: 'languages', label: 'Languages', fields: ['languages'] },
-  { key: 'effects', label: 'Effects in play', fields: ['effects'] },
+  { key: 'effects', label: 'Effects in play', fields: ['effects', 'activeSpells'] },
   { key: 'trackers', label: 'Uses spent', fields: ['trackers'] },
   { key: 'variants', label: 'Variant rules', fields: ['options', 'variants'] },
   { key: 'taint', label: 'Taint', fields: ['taint'] },

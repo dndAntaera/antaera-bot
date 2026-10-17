@@ -20,6 +20,7 @@ import {
   itemFromReference, inventoryTotals, carryingCapacity, attackFor, migrateInventory, slotChoices, usableContent, buyItem, removeItem,
   lockedParts, lockChanges, restoreLocked, isLockedPath, lockedSummary,
   parseDice, rollDice, rollSheet, findRoll, rollFor, rollChoices,
+  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS,
 } from '../web/engine/index.js';
 
 export function buildSuite(data) {
@@ -655,11 +656,128 @@ export function buildSuite(data) {
   });
 
   test('the editor starts every kind of content from a usable blank', (t) => {
-    for (const kind of ['race', 'class', 'feat', 'skill', 'item', 'template', 'feature']) {
+    t.eq(CONTENT_KINDS, ['race', 'class', 'feat', 'skill', 'item', 'template', 'feature', 'spell']);
+    for (const kind of CONTENT_KINDS) {
       t.eq(blankEntry(kind).name, '', `${kind} has a name`);
+      t.eq(blankEntry(kind).source, '', `${kind} has a source`);
     }
     t.eq(blankEntry('class').saves, { fort: 'poor', ref: 'poor', will: 'poor' });
-    t.ok(Array.isArray(blankEntry('feat').effects));
+    t.ok(Array.isArray(blankEntry('feat').specials), 'what a feat does is a list of special abilities');
+    t.eq([blankEntry('spell').mode, blankEntry('template').size, blankEntry('template').speed], ['spell', '', null], 'a template changes nothing it leaves empty');
+  });
+
+  /* === special abilities ================================================= */
+
+  test('an entry written before special abilities keeps what it said and did', (t) => {
+    const race = withSpecials({ name: 'Stonekin', traits: 'Stonecunning.', effects: [{ target: 'ac', type: 'natural', value: 2 }] }, 'race');
+    t.eq([race.specials.length, race.specials[0].text, race.specials[0].effects.length, race.traits, race.effects], [1, 'Stonecunning.', 1, undefined, undefined]);
+    const feat = withSpecials({ name: 'Lucky', benefit: 'Reroll.', uses: 2, usesPer: 'week' }, 'feat');
+    t.eq([feat.specials[0].text, feat.specials[0].uses, feat.specials[0].usesPer, feat.uses], ['Reroll.', 2, 'week', undefined]);
+    const feature = withSpecials({ name: 'Boon', from: 'Pelor', description: 'Glows.' }, 'feature');
+    t.eq([feature.source, feature.from, feature.specials[0].text], ['Pelor', undefined, 'Glows.']);
+    const cls = withSpecials({ name: 'Warblade', features: 'Battle clarity.' }, 'class');
+    t.eq(cls.specials[0].level, 1, 'a class’s old features arrive at 1st level');
+    const done = { name: 'New', specials: [] };
+    t.ok(withSpecials(done, 'race') === done, 'one already in the new shape is left alone');
+  });
+
+  test('a trait’s bonuses count, and a situational one is a note naming its source and its condition', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    embed(c, 'race', {
+      name: 'Stoneborn', size: 'Medium', speed: 20,
+      specials: [
+        { name: 'Stone sight', type: 'ex', text: 'Sees through dust.', effects: [{ target: 'skill.Spot', type: 'racial', value: 2 }] },
+        { name: 'Stone camouflage', type: 'ex', effects: [{ target: 'skill.Hide', type: 'racial', value: 4, condition: 'in rocky terrain' }] },
+      ],
+    });
+    c.race.name = 'Stoneborn';
+    c.abilities.base = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+    c.skills = [{ name: 'Spot', subtype: '', ranks: 0, misc: 0 }, { name: 'Hide', subtype: '', ranks: 0, misc: 0 }];
+    const d = derive(c, srd);
+    const line = (name) => d.skills.lines.find((l) => l.name === name);
+    t.eq([line('Spot').total, line('Hide').total], [2, 0], 'the situational +4 is not in the total');
+    const note = d.effects.conditional.find((e) => e.target === 'skill.Hide');
+    t.eq([note.value, note.condition, note.source], [4, 'in rocky terrain', 'Stoneborn: Stone camouflage']);
+    const sight = d.specials.find((x) => x.name === 'Stone sight');
+    t.eq([sight.mark, sight.group, sight.text], ['Ex', 'Stoneborn traits', 'Sees through dust.']);
+  });
+
+  test('a homebrew class’s features arrive at their level, with their bonuses', (t) => {
+    const make = (levels) => {
+      const c = characterWith(srd, repeat(['Duelist of Steel'], levels));
+      embed(c, 'class', {
+        name: 'Duelist of Steel', hd: 10, bab: 'good', saves: { fort: 'good', ref: 'good', will: 'poor' }, skillPoints: 4, classSkills: [],
+        specials: [
+          { name: 'Canny defense', type: 'ex', level: 1, effects: [{ target: 'ac', type: 'dodge', value: 1 }] },
+          { name: 'Steel nerve', type: 'ex', level: 3, effects: [{ target: 'save.will', type: 'morale', value: 2 }] },
+        ],
+      });
+      return derive(c, srd);
+    };
+    const two = make(2);
+    const three = make(3);
+    t.eq([two.specials.filter((x) => x.kind === 'class').length, three.specials.filter((x) => x.kind === 'class').length], [1, 2]);
+    t.eq(three.saves.will.bonuses - two.saves.will.bonuses, 2, 'Steel nerve counts from 3rd level');
+    t.eq(two.ac.total - two.ac.flatFooted, 1, 'a dodge bonus, lost when flat-footed');
+  });
+
+  test('spell-like and supernatural abilities have the SRD’s DCs', (t) => {
+    const ctx = { hitDice: 5, mods: { cha: 2, con: 3 } };
+    t.eq(specialDC({ type: 'sla', spellLevel: 2, save: 'will' }, ctx), { dc: 14, save: 'Will', formula: '10 + spell level 2 + Cha +2' });
+    t.eq(specialDC({ type: 'su', dcAbility: 'con', save: 'ref' }, ctx).dc, 15, '10 + half of 5 HD + Con 3');
+    t.eq(specialDC({ type: 'su' }, ctx).dc, 14, 'Charisma unless said otherwise');
+    t.eq(specialDC({ type: 'sla' }, ctx), null, 'no spell level, no DC');
+    t.eq(specialDC({ type: 'su', save: 'none' }, ctx), null);
+    t.eq(specialDC({ type: 'ex' }, ctx), null);
+  });
+
+  test('uses of a special ability are tracked, and come back with the reset they name', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    embed(c, 'feat', { name: 'Riposte', specials: [{ name: '', text: 'Strike back.', uses: 2, usesPer: 'encounter' }] });
+    embed(c, 'feature', { name: 'Blessing', specials: [{ name: 'Second wind', uses: 1, usesPer: 'day' }] });
+    c.feats = [{ name: 'Riposte' }];
+    c.features = [{ name: 'Blessing' }];
+    const first = derive(c, srd);
+    const riposte = first.trackers.find((x) => x.name === 'Riposte');
+    const wind = first.trackers.find((x) => x.name === 'Second wind');
+    t.eq([riposte.max, riposte.per, wind.source], [2, 'encounter', 'Blessing']);
+    c.trackers = { [riposte.key]: 2, [wind.key]: 1 };
+    const spent = derive(c, srd).trackers;
+    t.eq(spent.find((x) => x.name === 'Riposte').remaining, 0);
+    const encounter = restedTrackers(c, spent, 'encounter').trackers;
+    t.eq([encounter[riposte.key], encounter[wind.key]], [0, 1], 'the end of an encounter gives back only what comes back that soon');
+    t.eq(restedTrackers(c, spent, 'day').trackers[wind.key], 0);
+  });
+
+  test('a template replaces the type, adds its subtype, and changes only what it says', (t) => {
+    t.eq(creatureKind({ name: 'Dwarf' }, []).label, 'Humanoid (Dwarf)', 'the SRD races are Humanoids of their own kind');
+    const c = characterWith(srd, [['Fighter']]);
+    c.race.name = 'Dwarf';
+    embed(c, 'template', { name: 'Ember-touched', type: 'Outsider', subtype: 'Fire', size: '', speed: null, la: 1, abilityAdjust: { cha: 2 } });
+    embed(c, 'template', { name: 'Giant-blooded', type: '', subtype: '', size: 'Large', speed: 40 });
+    c.templates = [{ name: 'Ember-touched' }];
+    const one = derive(c, srd);
+    t.eq([one.race.kindLabel, one.race.size, one.race.speed, one.race.la], ['Outsider (Dwarf, Fire)', 'Medium', 20, 1]);
+    c.templates.push({ name: 'Giant-blooded' });
+    const two = derive(c, srd);
+    t.eq([two.race.kindLabel, two.race.size, two.race.speed], ['Outsider (Dwarf, Fire)', 'Large', 40], 'an empty type keeps the type');
+  });
+
+  test('an item’s slot is a slot the equipment knows, however it was typed', (t) => {
+    t.eq(['Cloak', 'ring', 'Ring1', 'belt', 'Headband', 'armor', '', 'Somewhere odd'].map(slotKeyFor),
+      ['shoulders', 'ring', 'ring', 'waist', 'head', 'armor', '', 'Somewhere odd']);
+  });
+
+  test('a spell’s effects count while it is switched on', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    embed(c, 'spell', { name: 'Stone Skin Lesser', mode: 'spell', specials: [{ name: '', effects: [{ target: 'ac', type: 'enhancement', value: 2 }] }] });
+    const before = derive(c, srd).ac.total;
+    c.activeSpells = [{ name: 'Stone Skin Lesser', on: true }];
+    const on = derive(c, srd);
+    t.eq(on.ac.total - before, 2);
+    t.ok(on.specials.some((x) => x.kind === 'spell'));
+    c.activeSpells[0].on = false;
+    t.eq(derive(c, srd).ac.total, before, 'switched off, it does nothing');
   });
 
   test('collected effects say where they came from', (t) => {

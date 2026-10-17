@@ -33,6 +33,39 @@ export const BODY_SLOTS = [
   { key: 'feet', label: 'Feet', examples: 'boots, shoes' },
 ];
 
+/** The words an item's slot was once typed in, and the slot each one means. */
+const SLOT_WORDS = [
+  [/shield/i, 'shield'],
+  [/armou?r/i, 'armor'],
+  [/\bring/i, 'ring'],
+  [/robe|vestment/i, 'body'],
+  [/shirt|vest|torso/i, 'torso'],
+  [/head|helm|hat\b|circlet|crown|phylactery/i, 'head'],
+  [/face|eye|goggle|lens|mask/i, 'face'],
+  [/neck|amulet|periapt|necklace|brooch|medallion|scarab/i, 'neck'],
+  [/shoulder|cloak|cape|mantle/i, 'shoulders'],
+  [/\barm|bracer|bracelet/i, 'arms'],
+  [/hand|glove|gauntlet/i, 'hands'],
+  [/waist|belt|girdle/i, 'waist'],
+  [/feet|foot|boot|shoe|slipper/i, 'feet'],
+];
+const SLOT_KEYS = new Set([...BODY_SLOTS.map((s) => s.key), 'ring', 'armor', 'shield']);
+
+/**
+ * An item's slot as the equipment slots know it: 'shoulders' for a cloak,
+ * 'ring' for either hand. A slot typed in before the slot was a dropdown -
+ * "Cloak", "belt" - is read as the slot it names; one that names none is kept
+ * as typed.
+ */
+export function slotKeyFor(slot) {
+  const text = String(slot || '').trim();
+  if (!text) return '';
+  const lowered = text.toLowerCase();
+  if (/^ring\d$/.test(lowered)) return 'ring';
+  if (SLOT_KEYS.has(lowered)) return lowered;
+  return SLOT_WORDS.find(([pattern]) => pattern.test(text))?.[1] || text;
+}
+
 export const ITEM_CATEGORIES = ['Weapon', 'Armor', 'Shield', 'Ring', 'Wondrous item', 'Potion', 'Scroll', 'Wand', 'Rod', 'Staff', 'Ammunition', 'Gear', 'Tool', 'Clothing', 'Mount or vehicle', 'Trade good', 'Other'];
 
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -269,11 +302,14 @@ export function slotChoices(character, slotKey) {
         : character.equipment?.slots?.[slotKey];
   const fits = (item) => {
     const kind = item.stats?.kind;
-    if (slotKey === 'armor') return kind === 'armor' || item.category === 'Armor';
-    if (slotKey === 'shield') return kind === 'shield' || item.category === 'Shield';
+    if (slotKey === 'armor') return kind === 'armor' || item.category === 'Armor' || slotKeyFor(item.slot) === 'armor';
+    if (slotKey === 'shield') return kind === 'shield' || item.category === 'Shield' || slotKeyFor(item.slot) === 'shield';
     if (slotKey.startsWith('weapon:')) return kind === 'weapon' || item.category === 'Weapon';
     if (['Weapon', 'Armor', 'Shield', 'Ammunition', 'Trade good', 'Mount or vehicle', 'Potion', 'Scroll'].includes(item.category)) return false;
-    if (item.slot) return item.slot === slotKey || (item.slot === 'ring' && slotKey.startsWith('ring'));
+    if (item.slot) {
+      const slot = slotKeyFor(item.slot);
+      return slot === slotKey || (slot === 'ring' && slotKey.startsWith('ring'));
+    }
     if (item.category === 'Ring') return slotKey.startsWith('ring');
     return true;
   };

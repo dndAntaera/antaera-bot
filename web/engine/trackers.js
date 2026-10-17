@@ -15,6 +15,8 @@
 // What has been used is kept on the character: character.trackers[key] for the
 // first two, and `usesUsed` on the row itself for the third.
 
+import { RESETS } from './specials.js';
+
 const PER_DAY = 'day';
 const PER_WEEK = 'week';
 
@@ -149,23 +151,26 @@ export function trackersFor(character, summary, abilities, rules, index) {
 /** Where the trackers and the rules disagree. */
 export function trackerNotices(trackers, add) {
   for (const t of trackers) {
-    if (t.used > t.max) add('warn', `${t.name}: ${t.used} used, but only ${t.max} a ${t.per}.`, 'trackers');
+    if (t.used > t.max) add('warn', `${t.name}: ${t.used} used, but only ${t.max} per ${t.per}.`, 'trackers');
   }
 }
 
 /**
- * The character after resting: every use of `per` ('day', or 'week') back.
- * Returns the parts to change: { trackers, feats, features, items }.
+ * The character after a reset: a night's rest ('day'), a new week ('week') or
+ * the end of an encounter ('encounter'), each giving back what comes back that
+ * soon (engine/specials.js, RESETS). Returns the parts to change:
+ * { trackers, feats, features, items }.
  */
 export function restedTrackers(character, trackers, per = PER_DAY) {
   const next = { ...(character.trackers || {}) };
+  const back = RESETS[per] || RESETS.day;
   const clearRows = (list, path) => (list || []).map((row, i) => {
     const t = trackers.find((x) => x.row && x.row.path === path && x.row.index === i);
-    return t && (per === PER_WEEK || t.per === per) ? { ...row, usesUsed: 0 } : row;
+    return t && back.has(t.per) ? { ...row, usesUsed: 0 } : row;
   });
   for (const t of trackers) {
     if (t.row) continue;
-    if (per === PER_WEEK || t.per === per) next[t.key] = 0;
+    if (back.has(t.per)) next[t.key] = 0;
   }
   return {
     trackers: next,

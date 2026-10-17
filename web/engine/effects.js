@@ -114,8 +114,9 @@ const clean = (effect, source) => ({
  * also the order a player would think of them in: what I am, what I have
  * learned, what I am carrying, what has been done to me.
  *
- * @param entries {race, feats, items, templates, features} - already resolved
- *        from the content library to actual objects with `effects` arrays
+ * @param entries {race, templates, classes, feats, features, items, other,
+ *        active} - already resolved from the content library to actual objects
+ *        with `effects` arrays
  */
 export function collectEffects(entries) {
   const all = [];
@@ -130,12 +131,15 @@ export function collectEffects(entries) {
 
   add(entries.race, 'race');
   for (const template of entries.templates || []) add(template, 'template');
+  for (const cls of entries.classes || []) add(cls, 'class');
   for (const feat of entries.feats || []) add(feat, 'feat');
   for (const feature of entries.features || []) add(feature, 'feature');
   // Only what is actually worn or held: an unequipped cloak of resistance in
   // a backpack protects nobody.
   for (const item of entries.items || []) if (item.equipped !== false) add(item, 'item');
   for (const other of entries.other || []) add(other, 'other');
+  // Spells and powers switched on as in effect: a bull's strength, a bless.
+  for (const spell of entries.active || []) add(spell, 'spell');
 
   return all;
 }

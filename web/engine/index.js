@@ -41,6 +41,8 @@ export * from './inventory.js';
 export * from './feedback.js';
 export * from './locks.js';
 export * from './rolls.js';
+export * from './specials.js';
+export * from './creatures.js';
 export { derive } from './derive.js';
 export { blankCharacter, migrate, renumberLevels, SCHEMA, DEFAULT_RULESET } from './character.js';
 

@@ -37,6 +37,7 @@ import { contentIndex, raceFacts, resolveEntries, usableContent, CONTENT_TYPES }
 import { activeModules } from './modules.js';
 import { magicFor, magicNotices } from './magic.js';
 import { trackersFor, trackerNotices } from './trackers.js';
+import { characterSpecials, specialTrackers } from './specials.js';
 import {
   variantClassIndex, classVariantView, variantRaceIndex, applyFeatureVariants,
   variantArmorClass, variantHealth, variantScores, magicRatingFor, spontaneousMetamagicFor,
@@ -134,7 +135,7 @@ export function derive(stored, rules, options = {}) {
     gear: equippedGear(character, race.speed),
     wealth: { ...(character.wealth || {}), items: (character.wealth?.items || []).map((item) => ({ ...item, equipped: inSlot.has(item.id) || (item.equipped !== false && !item.stats) })) },
   };
-  const entries = resolveEntries(view, index, granted);
+  const entries = resolveEntries(view, index, granted, { classes: (summary.sides || []).flatMap((side) => side.classes) });
   // Traits and flaws (Unearthed Arcana), with what the SRD says each one does.
   entries.other = modules.traitsFlaws
     ? [...traitEntries(character, rules, 'trait'), ...traitEntries(character, rules, 'flaw')]
@@ -275,6 +276,21 @@ export function derive(stored, rules, options = {}) {
     taint: modules.taint ? taint(character, abilities, rules) : null,
     training: modules.training ? nextLevelTraining(character, rules, summary, gestalt, index) : null,
   };
+
+  // Special abilities: what the race, its templates, the classes, feats, misc
+  // features, worn items and spells in effect do - each with its mark, its DC
+  // and its uses. Uses join the limited uses.
+  const mods = Object.fromEntries(ABILITIES.map((k) => [k, abilities[k].mod]));
+  derived.specials = characterSpecials([
+    { kind: 'race', label: race.name ? `${race.name} traits` : 'Racial traits', holders: entries.race ? [entries.race] : [] },
+    { kind: 'template', label: 'Templates', holders: entries.templates },
+    { kind: 'class', label: 'Class features', holders: entries.classes },
+    { kind: 'feat', label: 'Feats', holders: entries.feats },
+    { kind: 'feature', label: 'Misc features', holders: entries.features },
+    { kind: 'item', label: 'Items', holders: entries.items.filter((item) => item.equipped !== false) },
+    { kind: 'spell', label: 'Spells and powers in effect', holders: entries.active },
+  ], { hitDice: summary.hitDiceCount, mods, used: character.trackers || {} });
+  derived.trackers.push(...specialTrackers(derived.specials));
 
   // Power points from feats: Wild Talent, Psionic Talent.
   const extraPoints = bonusTo(resolved, 'powerPoints');

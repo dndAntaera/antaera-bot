@@ -1,10 +1,12 @@
 // Player-written content, and how it reaches the arithmetic.
 //
-// Seven kinds of thing can be written by hand - a race, a class, a feat, a
-// skill, an item, a template, a class feature - and each is described here once,
-// as data. One editor in the interface renders all seven from these
-// descriptions, and one code path in the engine consumes them, so adding an
-// eighth kind later is a change in this file rather than a change everywhere.
+// Eight kinds of thing can be written by hand - a race, a class, a feat, a
+// skill, an item, a template, a misc feature, a spell or power - and each is
+// described here once, as data. One editor in the interface renders all of
+// them from these descriptions, and one code path in the engine consumes them,
+// so adding a ninth kind later is a change in this file rather than a change
+// everywhere. What each one does is a list of special abilities, in the one
+// shape engine/specials.js gives them.
 //
 // Where content lives, and why in two places:
 //
@@ -21,6 +23,10 @@
 // alternative - a sheet that points at content it does not carry - is a sheet
 // that quietly breaks the moment it leaves the browser it was made in.
 
+import { BODY_SLOTS, slotKeyFor } from './inventory.js';
+import { withSpecials, effectsOfSpecials } from './specials.js';
+import { creatureKind } from './creatures.js';
+
 /** The bonus types an effect may claim, for the editor's dropdown. */
 export const BONUS_TYPES = [
   'untyped', 'alchemical', 'armor', 'circumstance', 'competence', 'deflection',
@@ -28,48 +34,75 @@ export const BONUS_TYPES = [
   'profane', 'racial', 'resistance', 'sacred', 'shield', 'size',
 ];
 
-const PROGRESSIONS = [['good', 'good (+1 per level)'], ['average', 'average (+3/4)'], ['poor', 'poor (+1/2)']];
-const SAVE_PROGRESSIONS = [['good', 'good'], ['poor', 'poor']];
+const PROGRESSIONS = [['good', 'Good (+1 per level)'], ['average', 'Average (+3/4)'], ['poor', 'Poor (+1/2)']];
+const SAVE_PROGRESSIONS = [['good', 'Good'], ['poor', 'Poor']];
 const ABILITIES = [['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution'],
   ['int', 'Intelligence'], ['wis', 'Wisdom'], ['cha', 'Charisma']];
 
+/** Where an item is worn, by the keys the equipment slots use. */
+export const ITEM_SLOTS = [
+  ['', 'Slotless'],
+  ...BODY_SLOTS.filter((s) => s.key !== 'ring2').map((s) => [s.key === 'ring1' ? 'ring' : s.key, `${s.label} (${s.examples})`]),
+  ['armor', 'Armor'],
+  ['shield', 'Shield'],
+];
+
+export const SPELL_SCHOOLS = ['Abjuration', 'Conjuration', 'Divination', 'Enchantment', 'Evocation', 'Illusion', 'Necromancy', 'Transmutation', 'Universal'];
+export const SPELL_SUBSCHOOLS = ['Calling', 'Creation', 'Healing', 'Summoning', 'Teleportation', 'Scrying', 'Charm', 'Compulsion', 'Figment', 'Glamer', 'Pattern', 'Phantasm', 'Shadow'];
+export const DISCIPLINES = ['Clairsentience', 'Metacreativity', 'Psychokinesis', 'Psychometabolism', 'Psychoportation', 'Telepathy'];
+export const SUBDISCIPLINES = ['Charm', 'Compulsion', 'Creation', 'Healing', 'Scrying', 'Teleportation'];
+
+const NAME = { key: 'name', label: 'Name', type: 'text', wide: true };
+const SOURCE = { key: 'source', label: 'Source', type: 'text', wide: true, hint: 'A sourcebook and page, or homebrew.' };
+
+/** What a race and a template are both drawn with: a template is laid over a race, so it is described the same way. */
+const raceFields = (template) => [
+  NAME,
+  SOURCE,
+  { key: 'type', label: 'Type', type: 'creatureType', blank: template ? 'Unchanged' : 'Choose a type',
+    hint: template ? 'Empty keeps the creature’s own type; a type here replaces it.' : null },
+  { key: 'subtype', label: 'Subtype', type: 'creatureSubtype', blank: 'None',
+    hint: template ? 'Added to the creature’s subtypes.' : null },
+  { key: 'size', label: 'Size', type: 'size', blank: template ? 'Unchanged' : null },
+  { key: 'speed', label: 'Speed', type: 'int', hint: template ? 'Empty keeps the race’s speed.' : null },
+  { key: 'la', label: 'Level adjustment', type: 'int' },
+  { key: 'racialHD', label: 'Racial hit dice', type: 'int' },
+  { key: 'racialHDType', label: 'Racial hit die', type: 'int', hint: 'The die, as a number: 8 for d8.' },
+  { key: 'favoredClass', label: 'Favored class', type: 'text', hint: template ? 'Empty keeps the race’s.' : null },
+  { key: 'abilityAdjust', label: 'Ability adjustments', type: 'abilities', wide: true },
+  { key: 'specials', label: 'Traits', type: 'specials', add: 'Add a trait',
+    hint: template
+      ? 'What the template grants, one ability at a time. Give one bonuses and they count; give it uses and the sheet tracks them.'
+      : 'Darkvision, stonecunning, a racial bonus - one trait at a time. Give one bonuses and they count on the sheet; give it uses and the sheet tracks them.' },
+];
+
 /**
- * The seven kinds of content.
+ * The kinds of content.
  *
- * `fields` is what the editor draws. `effects: true` means entries of this kind
- * can carry effects, which is what gives them a say in the numbers.
+ * `fields` is what the editor draws, in order. A field of type `specials` is a
+ * list of special abilities (engine/specials.js): that is where every kind
+ * says what it does, and what it changes on a sheet. `tab` names the kind in
+ * the library's tabs where that differs from `label`.
  */
 export const CONTENT_TYPES = {
   race: {
     key: 'race',
     plural: 'races',
     label: 'Race',
-    blurb: 'A race or species. Ability adjustments, size and speed feed the sheet directly; everything else is an effect.',
-    effects: true,
-    fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
-      { key: 'size', label: 'Size', type: 'size' },
-      { key: 'speed', label: 'Speed', type: 'int' },
-      { key: 'la', label: 'Level adjustment', type: 'int' },
-      { key: 'racialHD', label: 'Racial hit dice', type: 'int' },
-      { key: 'racialHDType', label: 'Racial hit die', type: 'int', hint: 'The die, as a number: 8 for d8.' },
-      { key: 'abilityAdjust', label: 'Ability adjustments', type: 'abilities' },
-      { key: 'favoredClass', label: 'Favored class', type: 'text' },
-      { key: 'traits', label: 'Traits', type: 'textarea', wide: true,
-        hint: 'Darkvision, immunities, anything the sheet cannot count. Add the countable parts as effects below.' },
-    ],
+    blurb: 'A race or species. Its ability adjustments, size and speed feed the sheet directly; its traits say what else it does.',
+    fields: raceFields(false),
   },
 
   class: {
     key: 'class',
     plural: 'classes',
     label: 'Class',
-    blurb: 'A base or prestige class. Once entered it counts exactly like a printed one: hit die, attack progression, saves, skill points and class skills all feed the totals.',
-    effects: true,
+    blurb: 'A base or prestige class. Once entered it counts exactly like a printed one: hit die, base attack bonus, saves, skill points and class skills all feed the totals, and each class feature arrives at its level.',
     fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
+      NAME,
+      SOURCE,
       { key: 'hd', label: 'Hit die', type: 'int', hint: 'As a number: 8 for d8.' },
-      { key: 'bab', label: 'Attack progression', type: 'select', options: PROGRESSIONS },
+      { key: 'bab', label: 'Base Attack Bonus', type: 'select', options: PROGRESSIONS },
       { key: 'saves.fort', label: 'Fortitude', type: 'select', options: SAVE_PROGRESSIONS },
       { key: 'saves.ref', label: 'Reflex', type: 'select', options: SAVE_PROGRESSIONS },
       { key: 'saves.will', label: 'Will', type: 'select', options: SAVE_PROGRESSIONS },
@@ -77,9 +110,10 @@ export const CONTENT_TYPES = {
       { key: 'prestige', label: 'Prestige class', type: 'bool' },
       { key: 'classSkills', label: 'Class skills', type: 'list', wide: true,
         hint: 'Comma separated. A bare "Knowledge" makes every Knowledge a class skill.' },
-      { key: 'casting.ability', label: 'Casting ability', type: 'select', options: [['', 'none'], ...ABILITIES],
+      { key: 'casting.ability', label: 'Casting ability', type: 'select', options: [['', 'None'], ...ABILITIES],
         hint: 'Set this and the sheet works out spell save DCs and bonus slots.' },
-      { key: 'features', label: 'Class features', type: 'textarea', wide: true },
+      { key: 'specials', label: 'Class features', type: 'specials', add: 'Add a class feature', level: true,
+        hint: 'Each feature arrives at the class level it is gained at. Give one bonuses and they count from that level; give it uses and the sheet tracks them.' },
     ],
   },
 
@@ -87,15 +121,14 @@ export const CONTENT_TYPES = {
     key: 'feat',
     plural: 'feats',
     label: 'Feat',
-    blurb: 'A feat. Give it effects and taking it changes the sheet; leave them off and it is a line of text, which is all most feats need.',
-    effects: true,
+    blurb: 'A feat. Its benefit is text, which is all most feats need; give the benefit bonuses or uses and taking the feat changes the sheet.',
     fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
+      NAME,
+      SOURCE,
       { key: 'category', label: 'Type', type: 'text', hint: 'General, Combat, Metamagic, Item Creation ...' },
       { key: 'prerequisites', label: 'Prerequisites', type: 'text', wide: true },
-      { key: 'uses', label: 'Uses per day', type: 'int', hint: 'Leave empty unless it can be used only so many times. A sheet taking it tracks the uses.' },
-      { key: 'usesPer', label: 'Uses reset', type: 'select', options: [['day', 'each day'], ['week', 'each week']] },
-      { key: 'benefit', label: 'Benefit', type: 'textarea', wide: true },
+      { key: 'specials', label: 'Benefit', type: 'specials', add: 'Add a benefit',
+        hint: 'What the feat does. Uses and their reset are for a feat used only so many times.' },
     ],
   },
 
@@ -104,10 +137,10 @@ export const CONTENT_TYPES = {
     plural: 'skills',
     label: 'Skill',
     blurb: 'A skill the edition does not have. It joins the skill table, with its own key ability and rank costs.',
-    effects: false,
     fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
-      { key: 'ability', label: 'Key ability', type: 'select', options: [['', 'none'], ...ABILITIES] },
+      NAME,
+      SOURCE,
+      { key: 'ability', label: 'Key ability', type: 'select', options: [['', 'None'], ...ABILITIES] },
       { key: 'trainedOnly', label: 'Trained only', type: 'bool' },
       { key: 'acp', label: 'Armor check penalty applies', type: 'bool' },
       { key: 'subtype', label: 'Taken per subject', type: 'bool', hint: 'As Craft and Knowledge are.' },
@@ -119,15 +152,16 @@ export const CONTENT_TYPES = {
     key: 'item',
     plural: 'items',
     label: 'Item',
-    blurb: 'A piece of equipment. Effects apply while it is equipped, and stop when it is not.',
-    effects: true,
+    blurb: 'A piece of equipment. Its effects apply while it is worn or held, and stop when it is not.',
     fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
-      { key: 'slot', label: 'Slot', type: 'text', hint: 'Ring, cloak, held ...' },
+      NAME,
+      SOURCE,
+      { key: 'slot', label: 'Slot', type: 'select', options: ITEM_SLOTS, hint: 'Where it is worn.' },
       { key: 'value', label: 'Value in gp', type: 'int' },
       { key: 'weight', label: 'Weight', type: 'int' },
-      { key: 'uses', label: 'Uses or charges per day', type: 'int', hint: 'For an item usable only so many times a day.' },
       { key: 'description', label: 'Description', type: 'textarea', wide: true },
+      { key: 'specials', label: 'Effects', type: 'specials', add: 'Add an effect',
+        hint: 'What it does for whoever wears it, one power at a time - a bonus, a use a day, a spell-like ability.' },
     ],
   },
 
@@ -135,28 +169,55 @@ export const CONTENT_TYPES = {
     key: 'template',
     plural: 'templates',
     label: 'Template',
-    blurb: 'Something applied on top of a race - half-dragon, lycanthrope, a homebrew curse.',
-    effects: true,
-    fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
-      { key: 'la', label: 'Level adjustment', type: 'int' },
-      { key: 'abilityAdjust', label: 'Ability adjustments', type: 'abilities' },
-      { key: 'traits', label: 'What it grants', type: 'textarea', wide: true },
-    ],
+    blurb: 'Something laid over a race - half-dragon, lycanthrope, a homebrew curse. It is written as a race is, and whatever it leaves empty, the race underneath keeps.',
+    fields: raceFields(true),
   },
 
   feature: {
     key: 'feature',
     plural: 'features',
-    label: 'Feature',
-    blurb: 'Anything else a character has: a class feature, a boon, a bloodline, a curse. The catch-all, so nothing is unrepresentable.',
-    effects: true,
+    label: 'Misc feature',
+    tab: 'Misc Features',
+    blurb: 'Anything else a character has: a boon, a bloodline, a curse, a gift of the story. The catch-all, so nothing is unrepresentable.',
     fields: [
-      { key: 'name', label: 'Name', type: 'text', wide: true },
-      { key: 'from', label: 'Where it comes from', type: 'text', hint: 'A class, a story, a deity ...' },
-      { key: 'uses', label: 'Uses per day', type: 'int', hint: 'Leave empty unless it can be used only so many times.' },
-      { key: 'usesPer', label: 'Uses reset', type: 'select', options: [['day', 'each day'], ['week', 'each week']] },
-      { key: 'description', label: 'What it does', type: 'textarea', wide: true },
+      NAME,
+      { ...SOURCE, hint: 'A sourcebook, a class, a story, a deity - or homebrew.' },
+      { key: 'specials', label: 'What it does', type: 'specials', add: 'Add an ability' },
+    ],
+  },
+
+  spell: {
+    key: 'spell',
+    plural: 'spells',
+    label: 'Spell or power',
+    tab: 'Spells & Powers',
+    blurb: 'A spell or a psionic power, written as the books print one. What it does to whoever it is on can count on a sheet: switch it on there while it lasts.',
+    layout: 'statblock',
+    fields: [
+      NAME,
+      SOURCE,
+      { key: 'mode', label: 'Kind', type: 'select', options: [['spell', 'Spell'], ['power', 'Psionic power']] },
+      { key: 'school', label: 'School', labelPower: 'Discipline', type: 'school' },
+      { key: 'subschool', label: 'Subschool', labelPower: 'Subdiscipline', type: 'subschool' },
+      { key: 'descriptors', label: 'Descriptors', type: 'text', placeholder: 'Fire, Mind-Affecting' },
+      { key: 'level', label: 'Level', type: 'text', placeholder: 'Sor/Wiz 3, Clr 4', placeholderPower: 'Psion/wilder 3' },
+      { key: 'components', label: 'Components', labelPower: 'Display', type: 'text', placeholder: 'V, S, M', placeholderPower: 'Auditory, Visual' },
+      { key: 'castingTime', label: 'Casting Time', labelPower: 'Manifesting Time', type: 'text', placeholder: '1 standard action' },
+      { key: 'range', label: 'Range', type: 'text', placeholder: 'Close (25 ft. + 5 ft./2 levels)' },
+      { key: 'target', label: 'Target', type: 'text', placeholder: 'One creature' },
+      { key: 'effect', label: 'Effect', type: 'text', placeholder: 'Ray' },
+      { key: 'area', label: 'Area', type: 'text', placeholder: '20-ft.-radius spread' },
+      { key: 'duration', label: 'Duration', type: 'text', placeholder: '1 round/level' },
+      { key: 'savingThrow', label: 'Saving Throw', type: 'text', placeholder: 'Will negates' },
+      { key: 'resistance', label: 'Spell Resistance', labelPower: 'Power Resistance', type: 'text', placeholder: 'Yes' },
+      { key: 'powerPoints', label: 'Power Points', type: 'text', only: 'power', placeholder: '5' },
+      { key: 'description', label: 'Description', type: 'textarea', wide: true },
+      { key: 'materials', label: 'Material Component', type: 'text', only: 'spell', wide: true },
+      { key: 'focus', label: 'Focus', type: 'text', only: 'spell', wide: true },
+      { key: 'xpCost', label: 'XP Cost', type: 'text', wide: true },
+      { key: 'augment', label: 'Augment', type: 'textarea', only: 'power', wide: true },
+      { key: 'specials', label: 'Effects', type: 'specials', add: 'Add an effect',
+        hint: 'What it does to whoever it is on: a bonus while it lasts, an ability it grants. On a sheet, switch it on under Active spells and powers and these count.' },
     ],
   },
 };
@@ -171,14 +232,15 @@ export function blankEntry(kind) {
   for (const field of type.fields) {
     const value = field.type === 'bool' ? false
       : field.type === 'int' ? 0
-        : field.type === 'list' ? []
+        : field.type === 'list' || field.type === 'specials' ? []
           : field.type === 'abilities' ? {}
             : '';
     setDeep(entry, field.key, value);
   }
-  if (type.effects) entry.effects = [];
   if (kind === 'class') entry.saves = { fort: 'poor', ref: 'poor', will: 'poor' };
-  if (kind === 'race') entry.size = 'Medium';
+  if (kind === 'race') { entry.size = 'Medium'; entry.speed = 30; }
+  if (kind === 'template') entry.speed = null;
+  if (kind === 'spell') entry.mode = 'spell';
   return entry;
 }
 
@@ -206,14 +268,19 @@ export function blankLibrary() {
 export function contentIndex(rules, character) {
   const content = character?.content || {};
   const index = {};
+  // An entry written before special abilities existed is read in their shape,
+  // so what it says and does counts the same either way (engine/specials.js).
+  const own = (plural, kind) => (content[plural] || [])
+    .filter((e) => e?.name)
+    .map((e) => ({ ...withSpecials(e, kind), custom: true }));
 
   index.classByName = new Map(rules.classes.classes.map((c) => [c.name, c]));
-  for (const c of content.classes || []) if (c.name) index.classByName.set(c.name, { ...c, custom: true });
+  for (const c of own('classes', 'class')) index.classByName.set(c.name, c);
   // Sheets made before the library existed kept their classes here.
-  for (const c of character?.customClasses || []) if (c.name) index.classByName.set(c.name, { ...c, custom: true });
+  for (const c of character?.customClasses || []) if (c.name) index.classByName.set(c.name, { ...withSpecials(c, 'class'), custom: true });
 
   index.raceByName = new Map((rules.races?.races || []).map((r) => [r.name, r]));
-  for (const r of content.races || []) if (r.name) index.raceByName.set(r.name, { ...r, custom: true });
+  for (const r of own('races', 'race')) index.raceByName.set(r.name, r);
 
   index.skills = [...rules.skills.skills];
   for (const s of content.skills || []) {
@@ -224,20 +291,21 @@ export function contentIndex(rules, character) {
   }
   index.skillsByName = new Map(index.skills.map((s) => [s.name, s]));
 
-  index.featByName = new Map((content.feats || []).filter((f) => f.name).map((f) => [f.name, f]));
+  index.featByName = new Map(own('feats', 'feat').map((f) => [f.name, f]));
   // The SRD's feats carry their effects from data/feat-effects.json; a homebrew
   // feat of the same name, carried by the character, wins.
   index.srdFeatEffects = new Map(Object.entries(rules.featEffects?.feats || {}));
   index.featRuleByName = new Map((rules.featRules || []).map((f) => [f.name.toLowerCase(), f]));
-  index.itemByName = new Map((content.items || []).filter((i) => i.name).map((i) => [i.name, i]));
-  index.templateByName = new Map((content.templates || []).filter((t) => t.name).map((t) => [t.name, t]));
-  index.featureByName = new Map((content.features || []).filter((f) => f.name).map((f) => [f.name, f]));
+  index.itemByName = new Map(own('items', 'item').map((i) => [i.name, { ...i, slot: slotKeyFor(i.slot) }]));
+  index.templateByName = new Map(own('templates', 'template').map((t) => [t.name, t]));
+  index.featureByName = new Map(own('features', 'feature').map((f) => [f.name, f]));
+  index.spellByName = new Map(own('spells', 'spell').map((sp) => [sp.name, sp]));
 
   return index;
 }
 
 /**
- * The mechanical facts of a character's race.
+ * The mechanical facts of a character's race, with its templates laid over it.
  *
  * A race the sheet knows - an SRD race, or one the character carries - supplies
  * its own size, speed, level adjustment and ability adjustments, and the sheet's
@@ -246,42 +314,62 @@ export function contentIndex(rules, character) {
  * +2 Constitution being counted once from the race and again from a field a
  * player filled in to match it.
  *
- * Templates stack on top either way: their level adjustment and ability
- * adjustments are added, never substituted.
+ * Templates are laid over the race in the order taken. What they add - level
+ * adjustment, racial hit dice, ability adjustments, subtypes - is added; what
+ * they set - size, speed, favored class, type - replaces the race's, and only
+ * when the template says something. A template that leaves its size empty
+ * leaves the creature its own size.
  */
 export function raceFacts(character, index) {
   const typed = character.race || {};
   const known = index.raceByName.get(typed.name);
   const source = known || typed;
   const num = (v, d = 0) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? d : Number(v));
+  const templates = (character.templates || [])
+    .filter((t) => t?.name)
+    .map((t) => index.templateByName.get(t.name) || t);
 
   const abilityAdjust = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
   for (const key of Object.keys(abilityAdjust)) {
-    abilityAdjust[key] = num(source.abilityAdjust?.[key]);
-    for (const template of character.templates || []) {
-      const t = index.templateByName.get(template.name) || template;
-      abilityAdjust[key] += num(t.abilityAdjust?.[key]);
-    }
+    abilityAdjust[key] = num(source.abilityAdjust?.[key]) + templates.reduce((total, t) => total + num(t.abilityAdjust?.[key]), 0);
   }
 
-  const templateLA = (character.templates || []).reduce((total, template) => {
-    const t = index.templateByName.get(template.name) || template;
-    return total + num(t.la);
-  }, 0);
+  let size = source.size || 'Medium';
+  let speed = num(source.speed, 30);
+  let favoredClass = source.favoredClass || '';
+  let racialHDType = num(source.racialHDType);
+  for (const t of templates) {
+    if (t.size) size = t.size;
+    if (num(t.speed) > 0) speed = num(t.speed);
+    if (t.favoredClass) favoredClass = t.favoredClass;
+    if (!racialHDType && num(t.racialHDType)) racialHDType = num(t.racialHDType);
+  }
+  // Only a race the SRD prints has its kind worked out from its name; one
+  // typed in, or written as homebrew, is whatever it says it is.
+  const kind = creatureKind({ ...source, name: typed.name, custom: !known || Boolean(known.custom) }, templates);
 
   return {
     known: Boolean(known),
     name: typed.name || '',
-    size: source.size || 'Medium',
-    speed: num(source.speed, 30),
-    la: num(source.la) + templateLA,
-    racialHD: num(source.racialHD),
-    racialHDType: num(source.racialHDType),
+    size,
+    speed,
+    la: num(source.la) + templates.reduce((total, t) => total + num(t.la), 0),
+    racialHD: num(source.racialHD) + templates.reduce((total, t) => total + num(t.racialHD), 0),
+    racialHDType,
     abilityAdjust,
-    favoredClass: source.favoredClass || '',
-    traits: source.traits || '',
+    favoredClass,
+    traits: source.traits || specialsInWords(source.specials),
+    type: kind.type,
+    subtypes: kind.subtypes,
+    kindLabel: kind.label,
   };
 }
+
+/** A list of special abilities as one line of text, for what reads a race's traits as words. */
+const specialsInWords = (specials) => (specials || [])
+  .map((sp) => [String(sp?.name || '').trim(), String(sp?.text || '').trim()].filter(Boolean).join(': '))
+  .filter(Boolean)
+  .join(' ');
 
 /**
  * The things on this character that can carry effects, resolved to objects.
@@ -290,16 +378,22 @@ export function raceFacts(character, index) {
  * does. Both work, and a row that does both gets both - a +1 ring someone has
  * also written a note on is still a +1 ring.
  */
-export function resolveEntries(character, index, granted = []) {
+export function resolveEntries(character, index, granted = [], opts = {}) {
   const race = index.raceByName.get(character.race?.name);
-  const raceEntry = race || (character.race?.name ? { name: character.race.name } : null);
+  const typed = character.race || {};
+  const raceEntry = race || (typed.name ? { name: typed.name } : null);
 
+  // A row's own special abilities join its content's, and the effects of both
+  // join the row's: a homebrew feat's benefit counts, and so does anything a
+  // player added to the row on the sheet.
   const withContent = (rows, lookup, kind) => (rows || [])
-    .filter((row) => row && (row.name || (row.effects || []).length))
+    .filter((row) => row && (row.name || (row.effects || []).length || (row.specials || []).length))
     .map((row) => {
       const entry = lookup.get(row.name);
-      const effects = [...(entry?.effects || []), ...(row.effects || [])];
-      return { ...entry, ...row, kind, effects };
+      const specials = [...(entry?.specials || []), ...(row.specials || [])];
+      const name = row.name || entry?.name || '';
+      const effects = [...(entry?.effects || []), ...(row.effects || []), ...effectsOfSpecials({ name, specials })];
+      return { ...entry, ...row, kind, specials, effects };
     });
 
   // Feats: the character's own content first, then what the SRD feat does -
@@ -323,14 +417,50 @@ export function resolveEntries(character, index, granted = []) {
     return { ...row, effects: [...effects, ...(row.effects || [])], notes: filled.notes };
   });
 
+  // The race's traits: its content's, and any typed onto a race the sheet does not know.
+  const raceSpecials = [...(race?.specials || []), ...(typed.specials || [])];
+
+  // A class's features, as far as its level reaches: Rage at 1st, Greater Rage at 11th.
+  const classLevels = new Map();
+  for (const c of opts.classes || []) {
+    if (!c?.name || !c.def) continue;
+    const was = classLevels.get(c.name);
+    if (!was || was.levels < c.levels) classLevels.set(c.name, c);
+  }
+  const classes = [...classLevels.values()]
+    .filter((c) => (c.def.specials || []).length || (c.def.effects || []).length)
+    .map((c) => ({
+      name: c.name,
+      kind: 'class',
+      classLevel: c.levels,
+      source: c.def.source || '',
+      specials: c.def.specials || [],
+      effects: [...(c.def.effects || []), ...effectsOfSpecials({ name: c.name, specials: c.def.specials }, c.levels)],
+    }));
+
+  // Spells and powers in effect on the character, switched on on the sheet.
+  const active = (character.activeSpells || [])
+    .filter((a) => a?.name && a.on !== false)
+    .map((a) => {
+      const entry = index.spellByName?.get(a.name);
+      const specials = entry?.specials || [];
+      return { ...entry, name: a.name, kind: 'spell', specials, effects: effectsOfSpecials({ name: a.name, specials }) };
+    });
+
   return {
     race: raceEntry
-      ? { ...raceEntry, effects: [...(race?.effects || []), ...(character.race?.effects || [])] }
+      ? {
+        ...raceEntry,
+        specials: raceSpecials,
+        effects: [...(race?.effects || []), ...(typed.effects || []), ...effectsOfSpecials({ name: raceEntry.name, specials: raceSpecials })],
+      }
       : null,
     templates: withContent(character.templates, index.templateByName, 'template'),
+    classes,
     feats,
     features: withContent(character.features, index.featureByName, 'feature'),
     items: withContent(character.wealth?.items, index.itemByName, 'item'),
+    active,
   };
 }
 
@@ -426,6 +556,8 @@ export function unusedContent(character) {
     ...(character.templates || []).map((t) => t.name),
     ...(character.wealth?.items || []).map((i) => i.name),
     ...(character.skills || []).map((s) => s.name),
+    ...(character.activeSpells || []).map((a) => a?.name),
+    ...spellsKnownBy(character),
   ].filter(Boolean));
 
   const out = [];
@@ -437,3 +569,18 @@ export function unusedContent(character) {
   return out;
 }
 
+/** Every name a character's casting lists hold - what it knows, has prepared, keeps in a book. */
+function spellsKnownBy(character) {
+  const out = [];
+  const walk = (value) => {
+    if (!value) return;
+    if (typeof value === 'string') { out.push(value); return; }
+    if (Array.isArray(value)) { value.forEach(walk); return; }
+    if (typeof value === 'object') {
+      if (typeof value.name === 'string') out.push(value.name);
+      for (const [key, inner] of Object.entries(value)) if (key !== 'name' && typeof inner === 'object') walk(inner);
+    }
+  };
+  walk(character.magic);
+  return out;
+}
