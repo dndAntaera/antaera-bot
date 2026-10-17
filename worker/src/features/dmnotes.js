@@ -140,16 +140,27 @@ async function save(env, interaction) {
   return say(notes ? `DM's Notes saved: ${link}` : `DM's Notes removed: ${link}`);
 }
 
-// The notes sit at the top of the embed's description, above the update's list:
+// The notes sit at the top of the embed's description, above the update's list,
+// as plain prose under their heading. A line holding only an invisible
+// zero-width space (END) closes them: it shows as a blank line, and lets the
+// notes have blank lines of their own.
 //
 //   **DM's Notes**
-//   > first line
-//
+//   The calendar has a home now.
+//   END
 //   **Edited**
 //   • ...
+//
+// Notes written before that were quoted, every line starting "> ", and close
+// at the first line that doesn't; they are read that way still, and written
+// back as prose.
+export const END = '\u200b';
+
 export function splitNotes(text, header = HEADER) {
   const lines = String(text || '').split('\n');
   if (lines[0] !== header) return ['', String(text || '')];
+  const end = lines.indexOf(END, 1);
+  if (end !== -1) return [lines.slice(1, end).join('\n').trim(), lines.slice(end + 1).join('\n')];
   let i = 1;
   const notes = [];
   for (; i < lines.length && lines[i].startsWith('>'); i++) notes.push(lines[i].replace(/^> ?/, ''));
@@ -160,7 +171,7 @@ export function splitNotes(text, header = HEADER) {
 export function withNotes(text, notes, header = HEADER) {
   const rest = splitNotes(text, header)[1];
   if (!notes) return rest;
-  return `${header}\n${notes.split('\n').map((l) => `> ${l}`).join('\n')}\n\n${rest}`.trimEnd();
+  return `${header}\n${notes}\n${END}\n${rest}`.trimEnd();
 }
 
 // A form's value, in a Label or in the Action Row older forms used; for a

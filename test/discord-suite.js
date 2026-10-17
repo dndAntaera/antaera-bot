@@ -211,7 +211,7 @@ export function buildDiscordSuite() {
       t.eq(r.data.components[0].component.value, 'Old notes.', 'filled with the notes it has, even from their old place');
 
       r = await said(submit('20', '  The calendar has a home now.\nMore soon.  '));
-      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\n> The calendar has a home now.\n> More soon.\n\n${list}`, 'the notes go inside the embed, above the list');
+      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\nThe calendar has a home now.\nMore soon.\n​\n${list}`, 'the notes go inside the embed as plain prose, above the list');
       t.eq(posts['20'].embeds[0].title, 'Antæra Wiki updated', 'the rest of the embed is as it was');
       t.eq(posts['20'].content, ping, 'and the old copy above the embed is taken out');
       t.eq(posts['20'].allowed_mentions, { parse: [], roles: ['555'] }, 'the ping stays a mention, and nothing new can ping');
@@ -220,14 +220,22 @@ export function buildDiscordSuite() {
       r = await said(open(link('20')));
       t.eq(r.data.components[0].component.value, 'The calendar has a home now.\nMore soon.', 'running it again shows the notes to edit');
       await submit('20', 'Rewritten.');
-      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\n> Rewritten.\n\n${list}`, 'new notes replace the old');
-      r = await said(submit('20', 'x'.repeat(4000)));
-      t.ok(/room for/.test(r.data.content) && posts['20'].embeds[0].description.includes('Rewritten.'), 'notes that would not fit change nothing');
+      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\nRewritten.\n​\n${list}`, 'new notes replace the old');
+      await submit('20', 'One paragraph.\n\nAnd a second, after a blank line.');
+      r = await said(open(link('20')));
+      t.eq(r.data.components[0].component.value, 'One paragraph.\n\nAnd a second, after a blank line.', 'notes with blank lines in them read back whole');
+      posts['20'].embeds[0].description = `**DM's Notes**\n> Quoted, the old way.\n\n${list}`;
+      r = await said(open(link('20')));
+      t.eq(r.data.components[0].component.value, 'Quoted, the old way.', 'notes quoted the old way still read');
+      await submit('20', 'Quoted, the old way.');
+      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\nQuoted, the old way.\n​\n${list}`, 'and are written back as prose');
+      r = await said(submit('20', 'x'.repeat(4100)));
+      t.ok(/room for/.test(r.data.content) && posts['20'].embeds[0].description.includes('Quoted, the old way.'), 'notes that would not fit change nothing');
       await submit('20', '   ');
       t.eq(posts['20'].embeds[0].description, list, 'an empty form takes them off');
 
       await submit('30', 'From the webhook days.');
-      t.eq(posts['30'].embeds[0].description, `**DM's Notes**\n> From the webhook days.\n\n${list}`, 'a post the wiki’s webhook made is edited through the webhook');
+      t.eq(posts['30'].embeds[0].description, `**DM's Notes**\nFrom the webhook days.\n​\n${list}`, 'a post the wiki’s webhook made is edited through the webhook');
       t.eq(patched.at(-1), '30');
     } finally {
       globalThis.fetch = outer;
