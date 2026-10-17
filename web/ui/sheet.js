@@ -18,6 +18,8 @@ import {
   ABILITIES, ABILITY_NAMES, abilityIncreaseLevels, newAbilityRolls, rollAbilityArray, placeScore,
 } from '../engine/abilities.js';
 import { describeTarget } from '../engine/effects.js';
+import { CREATURE_TYPES, CREATURE_SUBTYPES } from '../engine/creatures.js';
+import { specialsEditor } from './specials-editor.js';
 import { CONTENT_TYPES, CONTENT_KINDS, unusedContent } from '../engine/library.js';
 
 const SAVES = [['fort', 'Fortitude'], ['ref', 'Reflex'], ['will', 'Will']];
@@ -41,20 +43,26 @@ export function identityPanel(app) {
   const sizes = app.rules.core.sizes.map((s) => s.name);
   const known = d.race.known;
 
+  // What kind of creature: "Humanoid (Dwarf)", or what its templates make it.
+  const kind = total('Type', 'race.kindLabel');
+  kind.classList.add('is-words');
   const raceFacts = known
     ? h('div.race-facts',
+      d.race.kindLabel ? kind : null,
       total('Size', 'race.size'),
       total('Speed', 'speed'),
       total('Level adj.', 'race.la', { format: 'signed' }),
       total('Favored class', 'race.favoredClass'),
       h('p.hint.race-traits', { text: d.race.traits }))
     : row(
+      labelled('Type', listChoice('race.type', c.race?.type, CREATURE_TYPES, 'Choose a type')),
+      labelled('Subtype', listChoice('race.subtype', c.race?.subtype, CREATURE_SUBTYPES, 'None')),
       labelled('Size', select('race.size', c.race?.size, sizes, { className: 'narrow' })),
       labelled('Speed', field('race.speed', c.race?.speed, { type: 'int', width: '4rem' })),
       labelled('Racial HD', field('race.racialHD', c.race?.racialHD, { type: 'int', width: '4rem', title: 'Hit dice from the race itself, before any class levels.' })),
       labelled('Level adj.', field('race.la', c.race?.la, { type: 'int', width: '4rem' })),
       labelled('Extra skill points', field('race.skillPointsPerLevel', c.race?.skillPointsPerLevel, { type: 'int', width: '4rem', title: 'Per level, before the first-level multiplier.' })),
-      h('span.hint', { text: 'A race the sheet does not know. Enter its numbers here, or write it up under Content so its effects count too.' }));
+      h('span.hint', { text: 'A race the sheet does not know. Enter its numbers here, or write it up under User Content so its effects count too.' }));
 
   return panel('identity', 'The character',
     row(
@@ -68,16 +76,33 @@ export function identityPanel(app) {
       d.levelAdjustment.capped ? labelled('Level adj. allowed', out('levelAdjustment.allowed', { format: 'signed' })) : null,
     ),
     raceFacts,
-    known ? null : h('details.aside',
+    known ? null : h('details.aside', { open: (c.race?.specials || []).length > 0 },
       h('summary', 'Ability adjustments and traits for this race'),
       row(...ABILITIES.map((key) => labelled(key.toUpperCase(),
         field(`race.abilityAdjust.${key}`, c.race?.abilityAdjust?.[key], { type: 'int', width: '3.5rem' })))),
-      row(labelled('Racial traits', textarea('race.traits', c.race?.traits, { rows: 3 }), { wide: true }))),
+      c.race?.traits ? row(labelled('Racial traits, as written before', textarea('race.traits', c.race?.traits, { rows: 3 }), { wide: true })) : null,
+      h('h3', { text: 'Traits' }),
+      specialsEditor('race.specials', () => {
+        c.race = c.race || {};
+        return (c.race.specials = c.race.specials || []);
+      }, {
+        skillNames: d.index.skills.map((x) => x.name),
+        addLabel: 'Add a trait',
+        emptyText: 'None yet. Each trait shows under Special abilities; give one bonuses and they count, give it uses and they are tracked.',
+        onShapeChange: () => { app.recompute(); if (app.panels.abilitiesList) app.rebuildPanel('abilitiesList'); if (app.panels.trackers) app.rebuildPanel('trackers'); },
+      })),
     templatesBlock(app),
     d.modules.backgrounds ? backgroundRow(app) : null,
     rs.id === 'antaera'
       ? row(labelled('Forum thread', field('meta.forumThread', c.meta?.forumThread, { placeholder: 'Link to the #scars-characters post', className: 'grow' }), { wide: true }))
       : null);
+}
+
+/** A bound dropdown of a fixed list, keeping a value the list does not hold rather than losing it. */
+function listChoice(path, value, list, blank) {
+  const options = [['', blank], ...list.map((x) => [x, x])];
+  if (value && !list.includes(value)) options.push([value, `${value} (not on the list)`]);
+  return select(path, value || '', options);
 }
 
 function backgroundRow(app) {
@@ -166,7 +191,7 @@ export function levelsPanel(app) {
       h('span.hint', { text: gestalt
         ? 'Gestalt: each level takes two classes and the sheet keeps the better of each.'
         : 'Pick a class for each level. Multiclassing is just different classes on different rows.' }),
-      h('a.hint', { href: '#/content/class', text: 'A class the SRD does not have? Write it under Content.' })),
+      h('a.hint', { href: '#/content/class', text: 'A class the SRD does not have? Write it under User Content.' })),
     app.derived.modules.training
       ? h('details.aside',
         h('summary', 'Next level, for training time'),
@@ -572,7 +597,8 @@ export function skillsPanel(app) {
       rebuild();
       app.recompute();
     }),
-    h('span.hint', { text: 'Craft, Knowledge, Perform and Profession are taken one subject at a time. Skills you have written under Content are listed here too.' }));
+    h('span.hint', { text: 'Craft, Knowledge, Perform and Profession are taken one subject at a time. Skills you have written under User Content are listed here too.' }),
+    h('ul.conditions', { dataset: { conditionsFor: 'skill' } }));
 
   const panelEl = panel('skills', 'Skills',
     h('div.summary-strip',
@@ -781,9 +807,23 @@ export function paintConditions(root, derived) {
     attack: ['attack.all', 'attack.melee', 'attack.ranged', 'damage.melee', 'damage.ranged'],
   };
   const sign = (n) => (n < 0 ? String(n) : `+${n}`);
+  const isSkill = (t) => t.startsWith('skill.') || t.startsWith('skills.');
   for (const el of root.querySelectorAll('[data-conditions-for]')) {
-    const targets = groups[el.dataset.conditionsFor] || [];
-    const items = targets.flatMap((t) => derived.effects.resolved[t]?.conditional || []);
+    const which = el.dataset.conditionsFor;
+    const all = derived.effects.conditional || [];
+    const items = which === 'all' ? all
+      : which === 'skill' ? all.filter((e) => isSkill(e.target))
+        : (groups[which] || []).flatMap((t) => derived.effects.resolved[t]?.conditional || []);
+    if (which === 'all') {
+      // The full list: the bonus, the condition it needs, and where it came from.
+      refill(el, items.length
+        ? items.map((e) => h('li.situational',
+          h('strong', { text: `${sign(e.value)}${e.type && e.type !== 'untyped' ? ` ${e.type}` : ''} ${describeTarget(e.target)}` }),
+          h('span', { text: ` ${e.condition}` }),
+          h('span.hint', { text: ` - ${e.source}` })))
+        : h('li.situational-none', { text: 'None.' }));
+      continue;
+    }
     refill(el, items.map((e) => h('li', { text: `${sign(e.value)} ${describeTarget(e.target)} ${e.condition} (${e.source})` })));
   }
   for (const el of root.querySelectorAll('[data-cond-mark]')) {
@@ -857,14 +897,14 @@ export function paintContent(root, app, library) {
    ========================================================================== */
 
 /**
- * @param ways  from app.js: { rest(), newWeek(), setUsed(tracker, used) }
+ * @param ways  from app.js: { rest(), newWeek(), endEncounter(), setUsed(tracker, used) }
  */
 export function trackersPanel(app, ways) {
   const trackers = app.derived.trackers || [];
   const list = h('ul.tracker-list', trackers.map((t) => h(`li.tracker${t.used > t.max ? '.is-over' : ''}`,
     h('div.tracker-name',
       h('span.tracker-title', { text: t.name }),
-      h('span.hint', { text: `${t.source} - ${t.max}${t.unit ? ` ${t.unit}` : ''} a ${t.per}` })),
+      h('span.hint', { text: `${t.source} - ${t.max}${t.unit ? ` ${t.unit}` : ''} per ${t.per}` })),
     t.unit || t.max > 12
       ? h('div.tracker-count',
         button('\u2212', () => ways.setUsed(t, t.used + 1), { subtle: true, title: `Use one${t.unit ? ` of the ${t.unit}` : ''}` }),
@@ -884,6 +924,7 @@ export function trackersPanel(app, ways) {
       : h('p.empty', { text: 'Nothing with uses per day yet. Class features like rage and turning appear here as they are gained; give any feat, feature or item a number of uses and it does too.' }),
     row(
       button('Rest', ways.rest, { title: 'A night\u2019s rest: daily uses, spells and power points back.' }),
+      trackers.some((t) => t.per === 'encounter' || t.per === 'round') ? button('End encounter', ways.endEncounter, { subtle: true, title: 'Uses per encounter and per round back.' }) : null,
       trackers.some((t) => t.per === 'week') ? button('New week', ways.newWeek, { subtle: true, title: 'Weekly uses back, and daily ones too.' }) : null,
       h('span.hint', { text: 'Uses a day come back with a night\u2019s rest.' })));
 }

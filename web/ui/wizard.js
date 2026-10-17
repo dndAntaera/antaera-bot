@@ -48,7 +48,7 @@ export const WIZARD_STEPS = [
     title: 'Race',
     intro: [
       'Your race adjusts your ability scores and sets your size, speed and a handful of traits. Type to narrow the list, and choose one to see what it gives.',
-      'A race the sheet does not know can be typed in instead, or written up under Content so its traits count.',
+      'A race the sheet does not know can be typed in instead, or written up under User Content so its traits count.',
     ],
     panels: [],
     notices: ['identity'],
@@ -395,7 +395,7 @@ function raceStep(app, ways) {
             total('Level adj.', 'race.la', { format: 'signed' }),
             total('Favored class', 'race.favoredClass'),
             h('p.hint.race-traits', { text: app.derived.race.traits }))
-          : h('p.hint', { text: `${chosen} is not a race the sheet knows. Its size, speed and adjustments can be entered on the full sheet, or written up under Content.` }))
+          : h('p.hint', { text: `${chosen} is not a race the sheet knows. Its size, speed and adjustments can be entered on the full sheet, or written up under User Content.` }))
         : h('p.hint', { text: 'No race chosen yet.' }))));
 }
 

@@ -14,7 +14,7 @@
   "name": "3.5 SRD",
   "shortName": "SRD",
   "tagline": "Third edition, revised. No house rules.",
-  "description": "Standard 3.5 character creation. Every class and skill from the SRD, no campaign restrictions, and anything the SRD does not cover can be added yourself under Content.",
+  "description": "Standard 3.5 character creation. Every class and skill from the SRD, no campaign restrictions, and anything the SRD does not cover can be added yourself under User Content.",
   "startingLevel": 1,
   "maxLevel": 20,
   "variantsChosenBy": "player",

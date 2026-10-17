@@ -1035,6 +1035,26 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 .feat-granted-name { font-weight: 600; }
 .feat-other summary, .traits-flaws summary { cursor: pointer; }
 .ability-row p { margin: 0; }
+
+/* A special ability on the sheet: (Ex), (SLA) or (Su) beside its name, its
+   DC as a tag, what it does, and its uses - "1 used / 3 per day" - with a
+   reset beside them. */
+.special-mark { font-weight: 400; color: var(--ink-soft); }
+.special-text { white-space: pre-line; }
+.special-effects { font-size: var(--text-small); }
+.special-track { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--text-small); }
+.special-track .field.special-used { width: 3.5rem; min-height: 0; padding: .1rem .3rem; text-align: center; }
+.special-track-of { color: var(--ink-soft); margin-right: var(--sp-2); }
+.special-row.is-over .special-used { border-color: var(--warn); }
+
+/* Situational modifiers: every bonus that waits on a condition, with the
+   condition it needs and the ability it came from. */
+.situational-list li.situational { font-style: normal; color: var(--ink); }
+.situational-list li.situational strong { font-weight: 600; }
+.situational-list li.situational-none { color: var(--ink-faint); }
+
+.active-spell-list { list-style: none; margin: 0 0 var(--sp-2); padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.active-spell { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .language-chips { list-style: none; margin: 0 0 var(--sp-2); padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .language-chip { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .5rem; border: var(--hair) solid var(--rule); border-radius: 999px; }
 .language-chip .btn { padding: 0 .3rem; }
@@ -1469,6 +1489,8 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 
 .race-facts { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: flex-start; }
 .race-traits { flex: 1 1 16rem; margin: 0; }
+/* A box holding words rather than a number - a creature's type - sets them smaller. */
+.total.is-words .out { font-size: var(--text-panel-title); padding-top: .2rem; }
 
 /* A conditional bonus, pencilled in the margin beside the number it affects. */
 .conditions { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: .1rem; }
@@ -1618,6 +1640,65 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 .content-effects h3, .primer h3 { font: 600 var(--text-small)/1 var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); margin: var(--sp-3) 0 var(--sp-1); }
 .content-form-actions { display: flex; gap: var(--sp-2); border-top: var(--hair) solid var(--rule); padding-top: var(--sp-3); }
 .content-empty { color: var(--ink-soft); }
+
+/* The ability tracker's editor: one card per special ability. A card shows
+   the DC's fields only for an ability that has one - a spell level for a
+   spell-like ability, a key ability for a supernatural one. */
+.content-specials h3 { font: 600 var(--text-small)/1 var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); margin: var(--sp-3) 0 var(--sp-1); }
+.content-specials > .hint { margin: 0 0 var(--sp-2); }
+.specials-editor { display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start; }
+.specials-list { width: 100%; display: flex; flex-direction: column; gap: var(--sp-3); }
+.specials-empty { margin: 0; }
+.special-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunk);
+}
+.special-head { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: flex-end; }
+.special-head > .cell:first-child { flex: 1 1 14rem; }
+.special-remove { margin-left: auto; }
+.special-uses { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; }
+.special-card:not([data-type="sla"]) .only-sla,
+.special-card:not([data-type="su"]) .only-su,
+.special-card:not([data-type="sla"]):not([data-type="su"]) .only-dc { display: none; }
+.special-bonuses > summary { font-size: var(--text-small); color: var(--ink-soft); cursor: pointer; }
+.special-bonuses[open] > summary { margin-bottom: var(--sp-2); }
+.special-bonuses > .hint { margin: 0 0 var(--sp-2); font-size: var(--text-tiny); }
+
+/* A spell or power, laid out as the books print one: the name, the school
+   and its descriptors, then each line of the block, label first. */
+.statblock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-width: 46rem;
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: var(--line) solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+}
+.statblock .field.statblock-name {
+  font: 700 var(--text-total)/1.3 var(--font-name);
+  padding-left: 0;
+  background: transparent;
+  border-width: 0 0 var(--hair);
+  border-radius: 0;
+  box-shadow: none;
+}
+.statblock-school { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.statblock-pick { display: flex; flex-direction: column; gap: .1rem; }
+.statblock-pick.grow { flex: 1 1 12rem; }
+.statblock-line { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: var(--sp-2); align-items: baseline; }
+.statblock-label { font-weight: 700; }
+.statblock-description { display: flex; flex-direction: column; gap: .1rem; margin: var(--sp-2) 0; }
+@media (max-width: 34rem) {
+  .statblock { padding: var(--sp-3); }
+  .statblock-line { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
 
 .primer { max-width: 44rem; }
 .primer h2 { font: 400 var(--text-panel-title)/1.2 var(--font-display); margin: var(--sp-4) 0 var(--sp-2); }

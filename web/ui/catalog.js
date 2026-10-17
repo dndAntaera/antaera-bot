@@ -21,6 +21,8 @@
 
 import { h, button, refill } from './dom.js';
 import { CONTENT_TYPES } from '../engine/library.js';
+import { withSpecials, perLabel } from '../engine/specials.js';
+import { describeTarget } from '../engine/effects.js';
 import { loadReference, referenceNow, lookUp } from '../reference.js';
 
 /** Where the SRD's own words about a kind of content are kept (reference.js). */
@@ -124,6 +126,9 @@ function valueOf(field, entry) {
     return parts.length ? parts.join(', ') : null;
   }
   if (field.type === 'bool') return raw ? 'yes' : null;
+  if (field.type === 'specials') return null;
+  // A dropdown's value as its option reads: "Good (+1 per level)", not "good".
+  if (field.type === 'select') return field.options.find(([value]) => value === raw)?.[1] || String(raw);
   if (Array.isArray(raw)) return raw.length ? raw.join(', ') : null;
   if (field.type === 'int' && Number(raw) === 0) return null;
   return String(raw);
@@ -133,8 +138,25 @@ function valueOf(field, entry) {
 const EXTRA_KEYS = [
   ['prerequisites', 'Prerequisites'], ['prerequisite', 'Prerequisite'], ['benefit', 'Benefit'],
   ['normal', 'Normal'], ['special', 'Special'], ['note', 'Note'], ['description', 'Description'],
-  ['types', 'Type'], ['type', 'Type'], ['requires', 'Requires'],
+  ['types', 'Type'], ['type', 'Type'], ['requires', 'Requires'], ['traits', 'Traits'],
 ];
+
+/** "+2 racial Spot; +4 racial Hide while in rocky terrain". */
+const bonusLine = (e) => `${Number(e.value) < 0 ? '' : '+'}${Number(e.value) || 0}${e.type && e.type !== 'untyped' ? ` ${e.type}` : ''} ${describeTarget(e.target)}${e.condition ? ` while ${e.condition}` : ''}`;
+
+/** An entry's special abilities, as its preview lists them: name and mark, words, uses, bonuses. */
+function specialsPreview(specials) {
+  const list = (specials || []).filter((sp) => sp && (sp.name || sp.text || (sp.effects || []).length));
+  if (!list.length) return null;
+  return h('div.catalog-effects',
+    h('h4', { text: `What it does (${list.length})` }),
+    h('ul', list.map((sp) => h('li',
+      sp.name ? h('strong', { text: `${sp.name}${{ ex: ' (Ex)', sla: ' (SLA)', su: ' (Su)' }[sp.type] || ''}` }) : null,
+      sp.level ? h('span.hint', { text: ` level ${sp.level}` }) : null,
+      sp.uses ? h('span.hint', { text: ` ${sp.uses} ${perLabel(sp.usesPer)}` }) : null,
+      sp.text ? h('span', { text: `${sp.name ? ': ' : ''}${sp.text}` }) : null,
+      (sp.effects || []).length ? h('span.hint', { text: ` ${(sp.effects || []).filter((e) => e?.target).map(bonusLine).join('; ')}` }) : null))));
+}
 
 const HAS_TAGS = /<[a-z][^>]*>/i;
 
@@ -151,7 +173,9 @@ export function catalogPreview(app, row, pick) {
   // benefit and an item's description live in the reference (reference.js).
   const kind = REFERENCE_FOR[row.kind];
   const printed = kind && referenceNow(kind) ? lookUp(kind, row.name) : null;
-  const entry = printed ? { ...printed, ...row.entry } : (row.entry || {});
+  // What somebody wrote is read in the shape it is edited in: its abilities.
+  const written = row.entry && (row.written || row.entry.custom) ? withSpecials(row.entry, row.kind) : row.entry;
+  const entry = printed ? { ...printed, ...written } : (written || {});
   // The rules' own words are written as markup and are shown as such. What
   // somebody at the table wrote is shown as the words they typed, tags and
   // all: a campaign's library is written by another person, and nothing from
@@ -181,10 +205,11 @@ export function catalogPreview(app, row, pick) {
       ? h('dl.catalog-facts', lines.map(([label, value, markup]) =>
         [h('dt', { text: label }), markup ? h('dd', { html: value }) : h('dd', { text: value })]).flat())
       : h('p.hint', { text: 'Nothing beyond its name is written down.' }),
+    specialsPreview(entry.specials),
     effects.length
       ? h('div.catalog-effects',
         h('h4', { text: `What it does on the sheet (${effects.length})` }),
-        h('ul', effects.map((e) => h('li', { text: `${e.target}${e.type ? ` (${e.type})` : ''}: ${e.value > 0 ? '+' : ''}${e.value}${e.condition ? ` while ${e.condition}` : ''}` }))))
+        h('ul', effects.map((e) => h('li', { text: bonusLine(e) }))))
       : null,
     pick ? h('div.catalog-actions', pick(row)) : null);
 }

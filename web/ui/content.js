@@ -1,16 +1,23 @@
-// The content library: where players write what the SRD does not have.
+// User Content: where players write what the SRD does not have.
 //
 // Every kind of content is drawn by the same editor, from its description in
 // engine/library.js. Nothing in this file knows what a race is, or a feat; it
-// knows how to draw a text field, a number, a dropdown, six ability boxes and an
-// effects table, and the description says which of those an entry needs.
+// knows how to draw a text field, a number, a dropdown, six ability boxes and a
+// list of special abilities (ui/specials-editor.js), and the description says
+// which of those an entry needs. A spell or power is the one kind laid out
+// differently: as the books print one, a stat block from its name down.
 
 import {
-  h, field, select, checkbox, textarea, labelled, button, refill, bindForm,
+  h, field, select, checkbox, textarea, button, refill, bindForm,
 } from './dom.js';
-import { effectsEditor } from './effects-editor.js';
-import { CONTENT_TYPES, CONTENT_KINDS, blankEntry } from '../engine/library.js';
+import { specialsEditor } from './specials-editor.js';
+import {
+  CONTENT_TYPES, CONTENT_KINDS, blankEntry, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, DISCIPLINES, SUBDISCIPLINES,
+} from '../engine/library.js';
 import { TARGETS } from '../engine/effects.js';
+import { withSpecials, SPECIAL_TYPES } from '../engine/specials.js';
+import { CREATURE_TYPES, CREATURE_SUBTYPES } from '../engine/creatures.js';
+import { slotKeyFor } from '../engine/inventory.js';
 import { library } from '../store.js';
 
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
@@ -20,8 +27,8 @@ function personalSource(app) {
   return {
     shelf: library,
     base: '#/content',
-    heading: 'Your homebrew',
-    intro: 'Anything the SRD does not have. Write it once here, pick it by name on any of your own characters, and it counts - its numbers and its effects, not just its name. In a campaign, only the campaign\u2019s homebrew counts, unless its GMs allow yours.',
+    heading: 'User Content',
+    intro: 'Anything the SRD does not have. Write it once here, pick it by name on any of your own characters, and it counts - its numbers and its abilities, not just its name. In a campaign, only the campaign\u2019s homebrew counts, unless its GMs allow yours.',
     where: app.user
       ? `Saved to your account, ${app.user.name}. It counts on your own characters outside campaigns.`
       : 'Kept in this browser. Export it to share or back it up.',
@@ -66,7 +73,7 @@ export function showContent(main, app, kind = 'race', at = null, source = null) 
   const tabs = h('nav.content-tabs', CONTENT_KINDS.map((k) => h('a.content-tab', {
     href: `${src.base}/${k}`,
     class: k === kind ? 'is-active' : '',
-  }, CONTENT_TYPES[k].label, h('span.count', { text: String(shelf[CONTENT_TYPES[k].plural].length) }))));
+  }, CONTENT_TYPES[k].tab || CONTENT_TYPES[k].label, h('span.count', { text: String(shelf[CONTENT_TYPES[k].plural].length) }))));
 
   const list = h('ul.content-list', entries.length
     ? entries.map((entry, i) => h('li', h('a.content-item', {
@@ -113,45 +120,77 @@ export function showContent(main, app, kind = 'race', at = null, source = null) 
 }
 
 /** The line under an entry's name in the list: its most telling numbers. */
-function summaryLine(kind, e) {
-  const fx = (e.effects || []).length;
-  const effects = fx ? `${fx} effect${fx === 1 ? '' : 's'}` : '';
-  switch (kind) {
-    case 'race': return [e.size, e.la ? `LA +${e.la}` : '', effects].filter(Boolean).join(' - ');
-    case 'class': return [e.hd ? `d${e.hd}` : '', e.bab, e.prestige ? 'prestige' : '', effects].filter(Boolean).join(' - ');
-    case 'skill': return [e.ability ? e.ability.toUpperCase() : '', e.trainedOnly ? 'trained only' : ''].filter(Boolean).join(' - ');
-    case 'item': return [e.slot, e.value ? `${Number(e.value).toLocaleString()} gp` : '', effects].filter(Boolean).join(' - ');
-    default: return effects;
-  }
+function summaryLine(kind, entry) {
+  const e = migrate(kind, entry);
+  const n = (e.specials || []).filter((sp) => sp?.name || sp?.text || (sp?.effects || []).length).length;
+  const abilities = n ? `${n} ${{ race: 'trait', template: 'trait', class: 'feature' }[kind] || 'ability'}${n === 1 ? '' : 's'}` : '';
+  const kindOf = [e.type, e.subtype ? `(${e.subtype})` : ''].filter(Boolean).join(' ');
+  const parts = {
+    race: [kindOf, e.size, e.la ? `LA +${e.la}` : '', abilities],
+    template: [kindOf, e.la ? `LA +${e.la}` : '', abilities],
+    class: [e.hd ? `d${e.hd}` : '', e.bab, e.prestige ? 'prestige' : '', abilities],
+    skill: [e.ability ? e.ability.toUpperCase() : '', e.trainedOnly ? 'trained only' : ''],
+    item: [e.slot, e.value ? `${Number(e.value).toLocaleString()} gp` : '', abilities],
+    spell: [e.mode === 'power' ? 'power' : 'spell', e.school, e.level],
+  }[kind] || [abilities];
+  return [...parts, e.source].filter(Boolean).join(' - ');
+}
+
+/**
+ * An entry as the editor draws it: one written before special abilities in
+ * their shape, an item's typed slot as the slot it names. Nothing is saved
+ * until the entry is next changed.
+ */
+function migrate(kind, entry) {
+  const out = withSpecials(entry, kind);
+  if (kind === 'item' && out.slot) return { ...out, slot: slotKeyFor(out.slot) };
+  return out;
 }
 
 /* ==========================================================================
    The editor
    ========================================================================== */
 
-function editor(app, store, kind, index, entry, go) {
+function editor(app, store, kind, index, stored, go) {
   const type = CONTENT_TYPES[kind];
+  const entry = migrate(kind, stored);
   const sizes = app.rules.core.sizes.map((s) => s.name);
   const skillNames = app.rules.skills.skills.map((s) => s.name)
     .concat(store.list('skill').map((s) => s.name).filter(Boolean));
+  // What the other entries on the shelf already use, offered beside the SRD's own lists.
+  const inUse = (key) => [...new Set([...store.list('race'), ...store.list('template')].map((e) => e?.[key]).filter(Boolean))];
+  const lists = {
+    sizes,
+    types: [...new Set([...CREATURE_TYPES, ...inUse('type')])],
+    subtypes: [...new Set([...CREATURE_SUBTYPES, ...inUse('subtype')])].sort((a, b) => a.localeCompare(b)),
+  };
 
   const status = h('span.status', { text: 'saved' });
   let timer = null;
+
+  const specials = (f) => h('section.content-specials',
+    h('h3', { text: f.label }),
+    f.hint ? h('p.hint', { text: f.hint }) : null,
+    specialsEditor(f.key, () => (entry[f.key] = entry[f.key] || []), {
+      skillNames,
+      level: Boolean(f.level),
+      addLabel: f.add,
+      emptyText: `None yet. ${f.add || 'Add one'} and it shows on the sheet of anyone who takes this.`,
+      onShapeChange: () => persist(),
+    }));
+
+  const body = type.layout === 'statblock'
+    ? statblock(entry, type, () => persist())
+    : [
+      h('div.content-fields', type.fields.filter((f) => f.type !== 'specials').map((f) => fieldFor(f, entry, lists))),
+      type.fields.filter((f) => f.type === 'specials').map(specials),
+    ];
 
   const form = h('form.content-form', { onsubmit: (ev) => ev.preventDefault() },
     h('div.content-form-head',
       h('h2', { text: entry.name || `New ${type.label.toLowerCase()}` }),
       status),
-    h('div.content-fields', type.fields.map((f) => fieldFor(f, entry, sizes))),
-    type.effects
-      ? h('section.content-effects',
-        h('h3', { text: 'Effects' }),
-        h('p.hint', { text: 'What this changes on a sheet. Each effect is added to the number it names, by the rules for stacking bonuses of the same type.' }),
-        effectsEditor('effects', () => (entry.effects = entry.effects || []), {
-          skillNames,
-          onShapeChange: () => persist(),
-        }))
-      : null,
+    body,
     h('div.content-form-actions',
       button('Duplicate', () => {
         const shelf = store.load();
@@ -185,6 +224,8 @@ function editor(app, store, kind, index, entry, go) {
       form.querySelector('.content-form-head h2').textContent = entry.name || `New ${type.label.toLowerCase()}`;
       const link = document.querySelector('.content-item.is-active .content-item-name');
       if (link) link.textContent = entry.name || `Unnamed ${type.label.toLowerCase()}`;
+      const meta = document.querySelector('.content-item.is-active .content-item-meta');
+      if (meta) meta.textContent = summaryLine(kind, entry);
     }, 400);
   }
 
@@ -192,15 +233,24 @@ function editor(app, store, kind, index, entry, go) {
   return form;
 }
 
+/** A dropdown of a fixed list, keeping a value it does not hold rather than losing it. */
+function listSelect(path, value, list, blank) {
+  const options = [['', blank || '- choose -'], ...list.map((x) => (Array.isArray(x) ? x : [x, x]))];
+  if (value && !options.some(([v]) => v === value)) options.push([value, `${value} (not on the list)`]);
+  return select(path, value || '', options);
+}
+
 /** One field of an entry, drawn by its description. */
-function fieldFor(f, entry, sizes) {
+function fieldFor(f, entry, lists) {
   const value = f.key.split('.').reduce((o, k) => (o == null ? o : o[k]), entry);
   let control;
   switch (f.type) {
-    case 'int': control = field(f.key, value, { type: 'int' }); break;
+    case 'int': control = field(f.key, value, { type: 'int', placeholder: f.placeholder }); break;
     case 'bool': return h('div.cell.cell-check', checkbox(f.key, value, f.label, { title: f.hint }));
-    case 'select': control = select(f.key, value ?? '', f.options); break;
-    case 'size': control = select(f.key, value || 'Medium', sizes); break;
+    case 'select': control = listSelect(f.key, value ?? '', f.options.filter(([v]) => v !== ''), f.options.find(([v]) => v === '')?.[1]); break;
+    case 'size': control = f.blank ? listSelect(f.key, value, lists.sizes, f.blank) : select(f.key, value || 'Medium', lists.sizes); break;
+    case 'creatureType': control = listSelect(f.key, value, lists.types, f.blank); break;
+    case 'creatureSubtype': control = listSelect(f.key, value, lists.subtypes, f.blank); break;
     case 'list': control = field(f.key, value || [], { type: 'list', placeholder: 'comma, separated' }); break;
     case 'textarea': control = textarea(f.key, value, { rows: 4 }); break;
     case 'abilities':
@@ -208,12 +258,82 @@ function fieldFor(f, entry, sizes) {
         h('span.label', { text: k.toUpperCase() }),
         field(`${f.key}.${k}`, value?.[k] ?? 0, { type: 'int' }))));
       break;
-    default: control = field(f.key, value, {});
+    default: control = field(f.key, value, { placeholder: f.placeholder });
   }
   return h(`div.cell${f.wide ? '.wide' : ''}`,
     h('span.label', { text: f.label }),
     control,
     f.hint ? h('span.hint', { text: f.hint }) : null);
+}
+
+/* ==========================================================================
+   A spell or power, as the books print one
+   ========================================================================== */
+
+/**
+ * The stat block: the name, the school (or discipline) with its subschool and
+ * descriptors, then each line of the block in the books' order - Level,
+ * Components, Casting Time, Range, Target, Effect, Area, Duration, Saving
+ * Throw, Spell Resistance - the description, and what trails it. A power
+ * reads the same with the psionic words: Discipline, Display, Manifesting
+ * Time, Power Resistance, Power Points, Augment.
+ */
+function statblock(entry, type, onShapeChange) {
+  const host = h('div.statblock-host');
+  const field$ = (key) => type.fields.find((f) => f.key === key);
+
+  const draw = () => {
+    const power = entry.mode === 'power';
+    const label = (f) => (power && f.labelPower) || f.label;
+    const shown = (f) => !f.only || f.only === (power ? 'power' : 'spell');
+    const placeholder = (f) => (power && f.placeholderPower) || f.placeholder;
+
+    const kind = select('mode', entry.mode || 'spell', field$('mode').options);
+    // A spell and a power have different words for the same lines: the block is drawn again in the other's.
+    kind.addEventListener('change', () => setTimeout(draw, 0));
+
+    const line = (key) => {
+      const f = field$(key);
+      if (!shown(f)) return null;
+      return h('div.statblock-line',
+        h('span.statblock-label', { text: `${label(f)}:` }),
+        f.type === 'textarea'
+          ? textarea(f.key, entry[f.key], { rows: 3 })
+          : field(f.key, entry[f.key], { placeholder: placeholder(f) }));
+    };
+    const schools = power ? DISCIPLINES : SPELL_SCHOOLS;
+    const subschools = power ? SUBDISCIPLINES : SPELL_SUBSCHOOLS;
+    const description = field$('description');
+    const effects = field$('specials');
+
+    refill(host,
+      h('div.content-fields',
+        fieldFor(field$('source'), entry, {}),
+        h('div.cell', h('span.label', { text: 'Kind' }), kind)),
+      h('article.statblock', { dataset: { mode: power ? 'power' : 'spell' } },
+        field('name', entry.name, { placeholder: power ? 'Name of the power' : 'Name of the spell', className: 'statblock-name' }),
+        h('div.statblock-school',
+          h('label.statblock-pick', h('span.label', { text: power ? 'Discipline' : 'School' }), listSelect('school', entry.school, schools, power ? 'Discipline' : 'School')),
+          h('label.statblock-pick', h('span.label', { text: power ? 'Subdiscipline' : 'Subschool' }), listSelect('subschool', entry.subschool, subschools, 'None')),
+          h('label.statblock-pick.grow', h('span.label', { text: 'Descriptors' }), field('descriptors', entry.descriptors, { placeholder: field$('descriptors').placeholder }))),
+        ['level', 'components', 'castingTime', 'range', 'target', 'effect', 'area', 'duration', 'savingThrow', 'resistance', 'powerPoints'].map(line),
+        h('div.statblock-description',
+          h('span.label', { text: label(description) }),
+          textarea('description', entry.description, { rows: 8, placeholder: power ? 'What the power does.' : 'What the spell does.' })),
+        ['materials', 'focus', 'xpCost', 'augment'].map(line)),
+      h('section.content-specials',
+        h('h3', { text: effects.label }),
+        h('p.hint', { text: effects.hint }),
+        specialsEditor('specials', () => (entry.specials = entry.specials || []), {
+          skillNames: [],
+          addLabel: effects.add,
+          emptyText: power ? 'None yet. A power that gives a bonus while it lasts says so here.' : 'None yet. A spell that gives a bonus while it lasts says so here.',
+          onShapeChange,
+        })));
+  };
+
+  draw();
+  return host;
 }
 
 /* ==========================================================================
@@ -229,7 +349,9 @@ function effectsPrimer() {
 
   return h('section.primer',
     h('h2', { text: 'How content changes a sheet' }),
-    h('p', { text: 'Most of an entry is description. Its effects are the part the sheet can count: each one names a number, a bonus type and an amount.' }),
+    h('p', { text: 'What an entry does is a list of its abilities: a race\u2019s traits, a class\u2019s features, a feat\u2019s benefit, an item\u2019s effects. Each one shows on the sheet of whoever takes it, with its words, its uses and - for a spell-like or supernatural ability - its DC.' }),
+    h('p', { text: `An ability may be ${Object.values(SPECIAL_TYPES).map((t) => `${t.label} (${t.mark})`).join(', ')}, or left unmarked. Give it uses and the sheet tracks them, and gives them back when they reset: per day, per week, per encounter.` }),
+    h('p', { text: 'Its bonuses are the part the sheet can count: each one names a number, a bonus type and an amount.' }),
     example('A ring of protection +2', [['Armor Class', 'deflection', '+2', '']]),
     example('A homebrew race of stone-skinned folk', [
       ['Armor Class', 'natural', '+2', ''],
@@ -238,9 +360,9 @@ function effectsPrimer() {
     ]),
     h('h3', { text: 'Stacking' }),
     h('p', { text: 'Two bonuses of the same type do not add; the larger one applies. A ring of protection +1 and a shield of faith +3 give +3, not +4. Dodge, circumstance and untyped bonuses are the exceptions, and stack with themselves. Penalties always count.' }),
-    h('h3', { text: 'Conditions' }),
-    h('p', { text: 'An effect with something written under Only when is never added to a total - the sheet cannot know whether you are fighting a giant. It is listed beside the number instead, the way you would pencil it in the margin.' }),
-    h('h3', { text: 'What an effect can change' }),
+    h('h3', { text: 'Situational bonuses' }),
+    h('p', { text: 'A bonus with something written under Only when is never added to a total - the sheet cannot know whether you are fighting a giant. It is noted on the sheet instead, with the ability it came from and the condition it needs, the way you would pencil it in the margin.' }),
+    h('h3', { text: 'What a bonus can change' }),
     h('p.primer-targets', { text: `${Object.values(TARGETS).join(', ')}, and any individual skill.` }));
 }
 

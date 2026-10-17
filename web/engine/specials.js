@@ -62,7 +62,7 @@ const SAVE_NAMES = { fort: 'Fortitude', ref: 'Reflex', will: 'Will' };
 const ABILITY_SHORT = { str: 'Str', dex: 'Dex', con: 'Con', int: 'Int', wis: 'Wis', cha: 'Cha' };
 
 /** "per day" for 'day', as a tracker reads: "1 used / 3 per day". */
-export const perLabel = (per) => (USES_PER.find(([key]) => key === per)?.[1] || `Per ${per || 'day'}`).replace(/^Per /, 'per ');
+export const perLabel = (per) => `per ${(USES_PER.find(([key]) => key === per)?.[1] || per || 'day').replace(/^Per /, '').toLowerCase()}`;
 
 /** (Ex), (SLA), (Su) - or nothing, for an ability nobody has classed. */
 export const specialMark = (special) => SPECIAL_TYPES[special?.type]?.mark || null;

@@ -8,12 +8,13 @@
 // languages work the same way, from their own indexes. Class features are not
 // chosen at all: they are the class table's, listed with their SRD text.
 
-import { h, field, labelled, panel, row, button, refill, total } from './dom.js';
-import { effectsEditor } from './effects-editor.js';
+import { h, field, labelled, panel, row, button, refill, total, checkbox } from './dom.js';
+import { specialsEditor } from './specials-editor.js';
 import { featOptions, featLabel } from '../engine/feats.js';
 import { traitsOfKind, traitEligibility } from '../engine/traits.js';
 import { featureKey } from '../engine/features.js';
 import { describeTarget } from '../engine/effects.js';
+import { perLabel } from '../engine/specials.js';
 import { loadReference, referenceNow, lookUp, referenceHref } from '../reference.js';
 import { referenceCard } from './reference.js';
 
@@ -182,18 +183,13 @@ export function featsPanel(app) {
   const otherHost = h('div.list');
   refill(otherHost, loose.map(({ row: entry, i }) => {
     const fromContent = d.index.featByName.get(entry.name);
+    const own = !(fromContent || lookUp('feats', entry.name));
+    if (own) asSpecials(c.feats[i]);
     return h('div.effect-list-row',
       h('div.list-row',
         field(`feats.${i}.name`, entry.name, { list: 'feat-names', placeholder: 'Homebrew feat', className: 'grow' }),
-        fromContent || lookUp('feats', entry.name) ? null : field(`feats.${i}.effect`, entry.effect, { placeholder: 'What it does, in a line', className: 'grow wide' }),
         button('x', () => { c.feats.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Remove' })),
-      fromContent || lookUp('feats', entry.name) ? null : h('details.row-effects', { open: (entry.effects || []).length > 0 },
-        h('summary', (entry.effects || []).length ? `${entry.effects.length} effect${entry.effects.length === 1 ? '' : 's'}` : 'Effects'),
-        effectsEditor(`feats.${i}.effects`, () => (c.feats[i].effects = c.feats[i].effects || []), {
-          skillNames: d.index.skills.map((s) => s.name),
-          emptyText: 'None. Add one and this feat changes the sheet.',
-          onShapeChange: () => app.recompute(),
-        })));
+      own ? rowSpecials(app, `feats.${i}.specials`, () => c.feats[i], 'Benefit', 'Add a benefit') : null);
   }));
 
   return panel('feats', tf ? 'Feats, traits and flaws' : 'Feats',
@@ -338,7 +334,102 @@ function featureDescription(className, key) {
     || null;
 }
 
-export function abilitiesListPanel(app) {
+/**
+ * A row typed onto the sheet, written before rows carried special abilities:
+ * its line of text, its uses and its effects become one ability, so the row
+ * is edited in the same shape as everything else. Changes the row in place.
+ */
+function asSpecials(row) {
+  if (!row || Array.isArray(row.specials)) return row;
+  const text = String(row.effect || '').trim();
+  const effects = Array.isArray(row.effects) ? row.effects : [];
+  const uses = Number(row.uses) > 0 ? Number(row.uses) : null;
+  row.specials = text || effects.length || uses
+    ? [{ name: '', type: '', text, uses, usesPer: row.usesPer || 'day', effects }]
+    : [];
+  delete row.effect;
+  delete row.effects;
+  delete row.uses;
+  delete row.usesPer;
+  delete row.usesUsed;
+  return row;
+}
+
+/** The ability editor for one row on the sheet, folded away until it is wanted. */
+function rowSpecials(app, path, getRow, label, add) {
+  const list = getRow().specials || [];
+  const summary = () => (list.length ? `${label} (${list.length})` : label);
+  const details = h('details.row-effects', { open: list.length > 0 },
+    h('summary', { text: summary() }),
+    specialsEditor(path, () => (getRow().specials = getRow().specials || []), {
+      skillNames: app.derived.index.skills.map((x) => x.name),
+      addLabel: add,
+      emptyText: 'Nothing yet. Add one and it shows under Special abilities, with its uses tracked and its bonuses counted.',
+      onShapeChange: () => {
+        details.querySelector('summary').textContent = (getRow().specials || []).length ? `${label} (${getRow().specials.length})` : label;
+        app.recompute();
+        app.rebuildPanel('abilitiesList');
+        if (app.panels.trackers) app.rebuildPanel('trackers');
+      },
+    }));
+  return details;
+}
+
+/** "+2 racial Spot; +4 racial Hide (in rocky terrain)": an ability's bonuses in words. */
+const bonusesInWords = (effects) => effects.map((e) => {
+  const value = Number(e.value) || 0;
+  const type = e.type && e.type !== 'untyped' ? ` ${e.type}` : '';
+  return `${sign(value)}${type} ${describeTarget(e.target)}${e.perLevel ? ' per HD' : ''}${e.condition ? ` (${e.condition})` : ''}`;
+}).join('; ');
+
+/**
+ * One special ability as the sheet shows it: its name with its mark, its DC,
+ * what it does, its bonuses, and - when it has uses - how many are spent, which
+ * the player can change, and a button to have them all back.
+ */
+function specialRow(app, s, ways) {
+  const uses = s.uses > 0 ? usesTracker(s, ways) : null;
+  return h(`li.ability-row.special-row${s.used > s.uses && s.uses > 0 ? '.is-over' : ''}`,
+    h('div.ability-row-head',
+      h('span.ability-row-name', s.name, s.mark ? h('span.special-mark', { text: ` (${s.mark})`, title: s.typeLabel }) : null),
+      s.dc ? h('span.tag.special-dc', { text: `DC ${s.dc.dc}${s.dc.save ? ` ${s.dc.save}` : ''}`, title: s.dc.formula }) : null,
+      s.level ? h('span.hint', { text: `level ${s.level}` }) : null,
+      // A race's traits and a class's features are under their name already.
+      s.kind !== 'race' && s.kind !== 'class' && s.holder && s.holder !== s.name ? h('span.hint', { text: s.holder }) : null,
+      s.kind !== 'race' && s.kind !== 'class' && s.holderSource ? h('span.hint', { text: s.holderSource }) : null),
+    s.text ? h('p.special-text', { text: s.text }) : null,
+    s.effects.length ? h('p.hint.special-effects', { text: bonusesInWords(s.effects) }) : null,
+    uses);
+}
+
+/** "[1] used / 3 per day  Reset". */
+function usesTracker(s, ways) {
+  const input = h('input.field.special-used', {
+    type: 'number',
+    min: 0,
+    max: s.uses,
+    value: s.used,
+    'aria-label': `${s.name}: uses spent`,
+    dataset: { unbound: '' },
+    onchange: (ev) => {
+      const used = Math.max(0, Math.floor(Number(ev.target.value) || 0));
+      ways.setUsed?.({ key: s.key }, used, { from: 'abilitiesList' });
+    },
+  });
+  return h('div.special-track',
+    input,
+    h('span.special-track-of', { text: ` used / ${s.uses} ${perLabel(s.usesPer)}` }),
+    h('button.btn.subtle', {
+      type: 'button',
+      title: 'Every use back.',
+      onclick: () => {
+        input.value = 0;
+        ways.setUsed?.({ key: s.key }, 0, { from: 'abilitiesList' });
+      },
+    }, 'Reset'));
+}
+
+export function abilitiesListPanel(app, ways = {}) {
   const d = app.derived;
   const c = app.character;
   withReference(app, 'classes', 'abilitiesList');
@@ -371,56 +462,102 @@ export function abilitiesListPanel(app) {
         h('span.hint', { text: f.domain ? 'granted power' : `from ${f.className} ${f.gained}` }),
         tracker
           ? h('span.tag', app.wizard
-            ? { text: `${tracker.max}${tracker.unit ? ` ${tracker.unit}` : ''} a ${tracker.per}` }
-            : { text: `${tracker.remaining} of ${tracker.max}${tracker.unit ? ` ${tracker.unit}` : ''} left today`, title: 'Tracked under Limited uses.' })
+            ? { text: `${tracker.max}${tracker.unit ? ` ${tracker.unit}` : ''} ${perLabel(tracker.per)}` }
+            : { text: `${tracker.remaining} of ${tracker.max}${tracker.unit ? ` ${tracker.unit}` : ''} left`, title: 'Tracked under Limited uses.' })
           : null),
       f.domain ? h('p.hint', { text: f.text }) : null,
       details);
   };
 
-  const racial = d.race?.traits;
+  // Special abilities, grouped as the sheet lists them: a class's features
+  // under the class, everything else under where it came from.
+  const specials = d.specials || [];
+  const groups = new Map();
+  for (const sp of specials) {
+    const heading = sp.kind === 'class' ? `${sp.holder} features` : sp.group;
+    if (!groups.has(heading)) groups.set(heading, []);
+    groups.get(heading).push(sp);
+  }
+  const raceHasSpecials = specials.some((sp) => sp.kind === 'race');
+  const racial = raceHasSpecials ? null : d.race?.traits;
   const notes = d.specialNotes || [];
-  const features = effectRowsFor(app, changed);
 
   return panel('abilitiesList', 'Special abilities',
     byClass.size
       ? [...byClass.entries()].map(([className, list]) => h('div.block',
         h('h3', { text: `${className} features` }),
         h('ul.ability-rows', list.map(featureRow))))
-      : h('p.empty', { text: 'No class features yet. They fill in from the class tables as levels are taken.' }),
+      : (groups.size ? null : h('p.empty', { text: 'No class features yet. They fill in from the class tables as levels are taken.' })),
     racial ? h('div.block', h('h3', { text: `${d.race.name} traits` }), h('p', { text: racial })) : null,
+    [...groups.entries()].map(([heading, list]) => h('div.block',
+      h('h3', heading, ['race', 'class'].includes(list[0].kind) && list[0].holderSource ? h('span.hint.group-source', { text: ` ${list[0].holderSource}` }) : null),
+      h('ul.ability-rows', list.map((sp) => specialRow(app, sp, ways))))),
     notes.length
       ? h('div.block', h('h3', 'From feats, traits and flaws'),
         h('ul.ability-rows', notes.map((n) => h('li.ability-row', h('div.ability-row-head', h('span.ability-row-name', { text: n.source }), h('span.hint', { text: n.kind })), h('p', { text: n.text })))))
       : null,
+    h('div.block.situational',
+      h('h3', 'Situational modifiers'),
+      h('p.hint', { text: 'In no total: each applies only when its condition is met. Add it to the roll when it is.' }),
+      h('ul.conditions.situational-list', { dataset: { conditionsFor: 'all' } })),
+    activeSpellsBlock(app, changed),
     h('details.block', { open: (c.features || []).some((f) => f?.name) },
-      h('summary', 'Other abilities'),
-      h('p.hint', { text: 'A boon, a bloodline, a curse - anything else the character has. Give it effects and it changes the sheet; give it uses and it is tracked.' }),
-      features.host,
-      button('Add an ability', () => { c.features = c.features || []; c.features.push({ name: '', effect: '', effects: [] }); changed(); }, { subtle: true })));
+      h('summary', 'Misc features'),
+      h('p.hint', { text: 'A boon, a bloodline, a curse - anything else the character has. Pick one from User Content by name, or write its abilities here: give one bonuses and they count, give it uses and they are tracked.' }),
+      miscFeatureRows(app, changed),
+      row(
+        button('Add a misc feature', () => { c.features = c.features || []; c.features.push({ name: '', specials: [] }); changed(); }, { subtle: true }),
+        h('a.hint', { href: '#/content/feature', text: 'Write one in User Content' }))));
 }
 
-function effectRowsFor(app, changed) {
+/** Misc features typed onto the sheet, each with its abilities. */
+function miscFeatureRows(app, changed) {
   const c = app.character;
-  const host = h('div.list');
-  refill(host, (c.features || []).map((entry, i) => {
+  return h('div.list', (c.features || []).map((entry, i) => {
     const fromContent = app.derived.index.featureByName?.get(entry.name);
-    const fx = entry.effects || [];
+    asSpecials(c.features[i]);
     return h('div.effect-list-row',
       h('div.list-row',
-        field(`features.${i}.name`, entry.name, { list: 'feature-names', placeholder: 'Ability', className: 'grow' }),
-        field(`features.${i}.effect`, entry.effect, { placeholder: 'What it does, in a line', className: 'grow wide' }),
-        labelled('Uses', field(`features.${i}.uses`, entry.uses, { type: 'int', width: '3.5rem', placeholder: fromContent?.uses ? String(fromContent.uses) : '-' })),
+        field(`features.${i}.name`, entry.name, { list: 'feature-names', placeholder: 'Misc feature', className: 'grow' }),
+        fromContent ? h('span.hint', { text: 'from User Content' }) : null,
         button('x', () => { c.features.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Remove' })),
-      h('details.row-effects', { open: fx.length > 0 },
-        h('summary', fx.length ? `${fx.length} effect${fx.length === 1 ? '' : 's'}` : 'Effects'),
-        effectsEditor(`features.${i}.effects`, () => (c.features[i].effects = c.features[i].effects || []), {
-          skillNames: app.derived.index.skills.map((s) => s.name),
-          emptyText: fromContent ? 'Nothing added here beyond what the content entry already does.' : 'None. Add one and this row changes the sheet.',
-          onShapeChange: () => app.recompute(),
-        })));
+      rowSpecials(app, `features.${i}.specials`, () => c.features[i], fromContent ? 'More abilities' : 'Abilities', 'Add an ability'));
   }));
-  return { host };
+}
+
+/**
+ * Spells and powers in effect on the character - a bull's strength, a bless,
+ * a power it manifested on itself. Each is switched on while it lasts, and
+ * its effects count; switched off, it waits for next time.
+ */
+function activeSpellsBlock(app, changed) {
+  const c = app.character;
+  c.activeSpells = Array.isArray(c.activeSpells) ? c.activeSpells : [];
+  const carried = [...(app.derived.index.spellByName?.values() || [])];
+  const shelf = app.shelfEntries?.('spell') || [];
+  const known = new Map([...shelf, ...carried].filter((sp) => sp?.name).map((sp) => [sp.name, sp]));
+  const listed = new Set(c.activeSpells.map((a) => a?.name));
+  const options = [...known.values()]
+    .filter((sp) => !listed.has(sp.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((sp) => ({ value: sp.name, text: `${sp.name}${sp.mode === 'power' ? ' (power)' : ''}` }));
+
+  return h('div.block.active-spells',
+    h('h3', 'Spells and powers in effect'),
+    c.activeSpells.length
+      ? h('ul.active-spell-list', c.activeSpells.map((a, i) => h('li.active-spell',
+        checkbox(`activeSpells.${i}.on`, a.on !== false, a.name, { title: 'While it lasts: switched on, its effects count.' }),
+        known.get(a.name)?.duration ? h('span.hint', { text: known.get(a.name).duration }) : null,
+        button('x', () => { c.activeSpells.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Take it off the list' }))))
+      : h('p.hint', { text: known.size ? 'None in effect.' : 'A spell or power written in User Content with effects can be switched on here while it lasts.' }),
+    known.size
+      ? chooser('Put a spell or power in effect', '', options, (name) => {
+        if (!name) return;
+        app.adopt?.('spell', name);
+        c.activeSpells.push({ name, on: true });
+        changed();
+      }, { labelled: false, empty: options.length ? '- a spell or power -' : '- every one is listed -', disabled: !options.length })
+      : null);
 }
 
 /* ==========================================================================

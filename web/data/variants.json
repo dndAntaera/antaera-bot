@@ -37,7 +37,7 @@
    "category": "races",
    "sheet": "table",
    "summary": "Aquatic, arctic, desert and jungle versions of the core races, each with its own adjustments and traits.",
-   "onSheet": "Write the variant race under Content with its adjustments, and pick it as your race; the rule text is in the Reference.",
+   "onSheet": "Write the variant race under User Content with its adjustments, and pick it as your race; the rule text is in the Reference.",
    "url": "https://www.d20srd.org/srd/variant/races/environmentalRacialVariants.htm"
   },
   {
@@ -46,7 +46,7 @@
    "category": "races",
    "sheet": "table",
    "summary": "Races touched by air, earth, fire or water: air gnomes, earth dwarves, fire elves and others.",
-   "onSheet": "Write the variant race under Content with its adjustments, and pick it as your race; the rule text is in the Reference.",
+   "onSheet": "Write the variant race under User Content with its adjustments, and pick it as your race; the rule text is in the Reference.",
    "url": "https://www.d20srd.org/srd/variant/races/elementalRacialVariants.htm"
   },
   {

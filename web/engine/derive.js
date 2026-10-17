@@ -522,7 +522,7 @@ function notices(character, d, rules) {
   for (const side of d.summary.sides) {
     for (const c of side.classes) {
       if (c.def.missing) {
-        add('error', `"${c.name}" is not a class the sheet knows. Add it under Content so its numbers can be counted.`, 'levels');
+        add('error', `"${c.name}" is not a class the sheet knows. Add it under User Content so its numbers can be counted.`, 'levels');
       }
     }
   }
@@ -567,7 +567,7 @@ function notices(character, d, rules) {
       add('error', `${line.label} has ${line.ranks} ranks; the cap at ${d.summary.hitDiceCount} hit dice is ${line.maxRanks} ${line.classSkill ? '(class skill)' : '(cross-class)'}.`, 'skills');
     }
     if (line.def.unknown) {
-      add('warn', `"${line.name}" is not a skill the sheet knows. Add it under Content to give it a key ability.`, 'skills');
+      add('warn', `"${line.name}" is not a skill the sheet knows. Add it under User Content to give it a key ability.`, 'skills');
     }
   }
 
@@ -584,7 +584,7 @@ function notices(character, d, rules) {
 
   // --- Effects -------------------------------------------------------------
   for (const target of d.effects.unknown) {
-    add('warn', `An effect targets "${target}", which the sheet does not know how to apply. Check its spelling under Content.`, 'effects');
+    add('warn', `An effect targets "${target}", which the sheet does not know how to apply. Check its spelling under User Content.`, 'effects');
   }
   for (const bucket of Object.values(d.effects.resolved)) {
     for (const loser of bucket.suppressed) {

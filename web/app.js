@@ -62,13 +62,13 @@ const PANELS = {
   attackCards: fromPart('inventory', (a, m) => m.attackCardsPanel(a)),
   skills: skillsPanel,
   feats: fromPart('feats', (a, m) => m.featsPanel(a)),
-  abilitiesList: fromPart('feats', (a, m) => m.abilitiesListPanel(a)),
+  abilitiesList: fromPart('feats', (a, m) => m.abilitiesListPanel(a, { setUsed: setTrackerUsed })),
   languages: fromPart('feats', (a, m) => m.languagesPanel(a)),
   hitPoints: hitPointsPanel,
   startingWealth: startingWealthPanel,
   houserules: houserulesPanel,
   casting: fromPart('magic', (a, m) => m.magicPanel(a, { rest: restCharacter })),
-  trackers: (a) => trackersPanel(a, { rest: restCharacter, newWeek: () => restCharacter('week'), setUsed: setTrackerUsed }),
+  trackers: (a) => trackersPanel(a, { rest: restCharacter, newWeek: () => restCharacter('week'), endEncounter: () => restCharacter('encounter'), setUsed: setTrackerUsed }),
   advancedRules: fromPart('variants', (a, m) => m.advancedRulesPanel(a, { reopen })),
   classChoices: fromPart('variants', (a, m) => m.classChoicesPanel(a)),
   rulesInPlay: fromPart('variants', (a, m) => m.rulesInPlayPanel(a, { campaign: campaignOf(a.character) })),
@@ -241,7 +241,7 @@ async function connect() {
 const publicRulesets = () => RULESET_IDS.filter((id) => app.baseRules.rulesets[id]?.public);
 
 /**
- * Whether this visitor has signed in, which the Characters and Content pages
+ * Whether this visitor has signed in, which the Characters and User Content pages
  * and making a character all take. A build with no server (apiBase empty) has
  * no one to sign in to, and counts everyone as signed in.
  */
@@ -589,7 +589,7 @@ const VIEWS = [
       : signInPage('Profile', 'Sign in to see your profile.')),
   },
   { match: /^settings$/, nav: 'settings', title: 'Settings', show: () => (app.user ? fromPage('profile', (m) => m.showSettings(main(), app, settingsWays()))() : signInPage('Settings', 'Sign in to change your username, picture and how the site looks.')) },
-  { match: /^content(?:\/([^/]+))?(?:\/([^/]+))?$/, nav: 'content', title: 'Homebrew', show: ([kind, index]) => showLibrary(null, kind, index) },
+  { match: /^content(?:\/([^/]+))?(?:\/([^/]+))?$/, nav: 'content', title: 'User Content', show: ([kind, index]) => showLibrary(null, kind, index) },
   {
     match: /^campaign\/([^/]+)\/homebrew(?:\/([^/]+))?(?:\/([^/]+))?$/,
     nav: 'content',
@@ -603,7 +603,7 @@ const VIEWS = [
 const NAV = [
   { key: 'roster', label: 'Characters', href: '#/characters', visible: () => signedIn() },
   { key: 'campaigns', label: 'Campaigns', href: '#/campaigns', visible: () => Boolean(app.user), badge: () => (app.campaigns || []).reduce((n, c) => n + (c.unseenChanges || 0), 0) },
-  { key: 'content', label: 'Content', href: '#/content', visible: () => signedIn() },
+  { key: 'content', label: 'User Content', href: '#/content', visible: () => signedIn() },
   { key: 'reference', label: 'Reference', href: '#/reference', visible: () => signedIn() },
   { key: 'admin', label: 'Accounts', href: '#/admin', visible: () => Boolean(app.user?.admin) },
   { key: 'feedback', label: 'Feedback', href: '#/feedback', visible: () => Boolean(app.user?.admin) },
@@ -665,13 +665,13 @@ async function showLibrary(campaignId, kind, index) {
   app.character = null;
   const [{ showContent }] = await parts('content');
   if (!signedIn()) {
-    signInPage('Content', 'Sign in to write homebrew: races, classes, feats and items that count on your sheets. It is kept in a library of your own.');
+    signInPage('User Content', 'Sign in to write homebrew: races, classes, feats and items that count on your sheets. It is kept in a library of your own.');
     return;
   }
 
   const running = (app.campaigns || []).filter((c) => c.role === 'owner' || c.role === 'gm');
   const switcher = [
-    { label: 'Your homebrew', href: '#/content', active: !campaignId },
+    { label: 'User Content', href: '#/content', active: !campaignId },
     ...running.map((c) => ({ label: c.name, href: `#/campaign/${c.id}/homebrew`, active: c.id === campaignId })),
   ];
 
@@ -967,7 +967,10 @@ async function openSheet(id, opts = {}) {
   window.scrollTo(0, scroll);
 }
 
-/** A night's rest - spells, power points and daily uses back - or, with 'week', weekly uses too. */
+/**
+ * A night's rest - spells, power points and daily uses back - or, with 'week',
+ * weekly uses too; with 'encounter', only what comes back between encounters.
+ */
 function restCharacter(per = 'day') {
   const c = app.character;
   if (per === 'day') c.magic = restedMagic(c.magic);
@@ -977,11 +980,15 @@ function restCharacter(per = 'day') {
   c.features = rested.features;
   if (c.wealth) c.wealth.items = rested.items;
   app.recompute();
-  for (const key of ['casting', 'trackers', 'feats', 'inventory']) if (app.panels[key]) app.rebuildPanel(key);
+  for (const key of ['casting', 'trackers', 'feats', 'inventory', 'abilitiesList']) if (app.panels[key]) app.rebuildPanel(key);
 }
 
-/** Mark how many of a limited use are spent: on the row for a sheet row, in `trackers` otherwise. */
-function setTrackerUsed(tracker, used) {
+/**
+ * Mark how many of a limited use are spent: on the row for a sheet row, in
+ * `trackers` otherwise. Both lists that show uses are drawn again, except the
+ * one the change was made in, so a field being typed in keeps its caret.
+ */
+function setTrackerUsed(tracker, used, opts = {}) {
   const c = app.character;
   const value = Math.max(0, used);
   if (tracker.row) {
@@ -991,7 +998,7 @@ function setTrackerUsed(tracker, used) {
     c.trackers = { ...(c.trackers || {}), [tracker.key]: value };
   }
   app.recompute();
-  if (app.panels.trackers) app.rebuildPanel('trackers');
+  for (const key of ['trackers', 'abilitiesList']) if (app.panels[key] && opts.from !== key) app.rebuildPanel(key);
 }
 
 /** Draw the open character again, in the sheet or the wizard step it is in, once its changes are saved. */
@@ -1226,6 +1233,8 @@ const RESHAPES = [
   [/^wealth\.items\.\d+\.(name|qty)$/, ['equipment', 'trackers']],
   [/^wealth\.items\.\d+\.stats\./, ['equipment', 'attackCards']],
   [/^(feats|features|wealth\.items)\.\d+\.uses$/, ['trackers', 'abilitiesList']],
+  [/^(feats|features|race|templates)\.(\d+\.)?specials\.\d+\.(name|type|uses|usesPer|level|spellLevel|dcAbility|save)$/, ['trackers', 'abilitiesList']],
+  [/^activeSpells\.\d+\.on$/, ['abilitiesList', 'trackers']],
   [/^levels\.\d+\.[ab]$/, ['casting', 'classChoices', 'skills']],
 ];
 
