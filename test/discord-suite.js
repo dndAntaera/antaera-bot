@@ -142,93 +142,104 @@ export function buildDiscordSuite() {
     t.ok(/None of your characters/.test(theirs.data.data.content));
   });
 
-  test('/dmnotes: admins write the DM’s Notes atop the wiki’s latest announcement', async (t) => {
-    // The wiki's webhook and channel, faked at the network for this test.
+  test('/dmnotes: an admin writes the DM’s Notes into a linked announcement’s embed', async (t) => {
     const ping = 'Ping: || <@&555> ||';
+    const list = '**Edited**\n• [Taint](https://wiki.test/taint/) — Shadowlands → Plane of Shadow';
     const posts = {
-      '30': { id: '30', channel_id: 'C', webhook_id: 'W', content: ping, embeds: [{ title: 'Antæra Wiki updated (test)' }] },
-      '20': { id: '20', channel_id: 'C', webhook_id: 'W', content: ping, embeds: [{ title: 'Antæra Wiki updated' }] },
+      // The bot's own announcement, with notes from before they moved into the embed.
+      '20': { id: '20', channel_id: '800', author: { id: 'APP' }, content: `### DM's Notes\n> Old notes.\n\n${ping}`, embeds: [{ type: 'rich', title: 'Antæra Wiki updated', description: list }] },
+      // One the wiki's webhook posted, before the bot did.
+      '30': { id: '30', channel_id: '800', webhook_id: '900', author: { id: '900' }, content: ping, embeds: [{ type: 'rich', title: 'Antæra Wiki updated', description: list }] },
+      // Someone else's message, and one of the bot's with no embed.
+      '40': { id: '40', channel_id: '800', author: { id: 'someone' }, content: 'hi', embeds: [{ description: 'x' }] },
+      '50': { id: '50', channel_id: '800', author: { id: 'APP' }, content: 'plain', embeds: [] },
     };
-    let order = ['30', '20']; // newest first
+    const patched = [];
     const outer = globalThis.fetch;
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input instanceof Request ? input.url : input));
       const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
       if (url.host !== 'wiki.discord.test') return outer(input, init);
-      if (url.pathname === '/api/webhooks/W/tok') return reply({ id: 'W', channel_id: 'C', guild_id: 'G' });
-      if (url.pathname === '/api/v10/channels/C/messages') {
-        return init.headers?.Authorization === 'Bot bot-token' ? reply(order.map((id) => posts[id])) : reply({}, 401);
-      }
-      // The bot reads any post, and edits only its own; the webhook edits only its own.
-      const bot = url.pathname.match(/^\/api\/v10\/channels\/C\/messages\/(\d+)$/);
+      const method = init.method || 'GET';
+      // The bot reads any post and edits only its own; the webhook edits only its own.
+      const bot = url.pathname.match(/^\/api\/v10\/channels\/800\/messages\/(\d+)$/);
       if (bot && posts[bot[1]]) {
         if (init.headers?.Authorization !== 'Bot bot-token') return reply({}, 401);
-        if ((init.method || 'GET') === 'PATCH') {
-          if (posts[bot[1]].webhook_id) return reply({ message: 'Cannot edit a message authored by another user' }, 403);
+        if (method === 'PATCH') {
+          if (posts[bot[1]].author.id !== 'APP') return reply({ message: 'Cannot edit a message authored by another user' }, 403);
+          patched.push(bot[1]);
           Object.assign(posts[bot[1]], JSON.parse(init.body));
         }
         return reply(posts[bot[1]]);
       }
-      const m = url.pathname.match(/^\/api\/webhooks\/W\/tok\/messages\/(\d+)$/);
-      if (m && posts[m[1]]) {
-        if ((init.method || 'GET') === 'PATCH' && !posts[m[1]].webhook_id) return reply({ message: 'Unknown Webhook' }, 403);
-        if ((init.method || 'GET') === 'PATCH') Object.assign(posts[m[1]], JSON.parse(init.body));
-        return reply(posts[m[1]]);
+      const hook = url.pathname.match(/^\/api\/webhooks\/900\/tok\/messages\/(\d+)$/);
+      if (hook && method === 'PATCH' && posts[hook[1]]?.webhook_id === '900') {
+        patched.push(hook[1]);
+        Object.assign(posts[hook[1]], JSON.parse(init.body));
+        return reply(posts[hook[1]]);
       }
       return reply({ message: 'Unknown Message' }, 404);
     };
     try {
-      const wiki = { ...env, DISCORD_APPLICATION_ID: 'APP', WIKI_WEBHOOK_URL: 'https://wiki.discord.test/api/webhooks/W/tok', DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://wiki.discord.test/api/v10' };
+      const wiki = { ...env, DISCORD_APPLICATION_ID: 'APP', WIKI_WEBHOOK_URL: 'https://wiki.discord.test/api/webhooks/900/tok', DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://wiki.discord.test/api/v10' };
       const admin = { user: { id: 'd-dm' }, permissions: '8' };
-      const open = (member, e = wiki) => handleInteraction(e, { type: 2, guild_id: 'G', member, data: { name: 'dmnotes' } });
-      const submit = (value, member = admin, id = '20') => handleInteraction(wiki, { type: 5, guild_id: 'G', member, data: {
-        custom_id: `dmnotes:${id}`, components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'notes', value } }] } });
+      const link = (id) => `https://discord.com/channels/700/800/${id}`;
+      const open = (message, member = admin, e = wiki) => handleInteraction(e, { type: 2, guild_id: '700', member, data: { name: 'dmnotes', options: [{ name: 'message', type: 3, value: message }] } });
+      const submit = (id, value, member = admin) => handleInteraction(wiki, { type: 5, guild_id: '700', member, data: {
+        custom_id: `dmnotes:800:${id}`, components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'notes', value } }] } });
+      const said = async (response) => (await reply(await response)).data;
 
-      let r = await reply(await open({ user: { id: 'd-player' }, permissions: '1024' }));
-      t.ok(/Only server admins/.test(r.data.data.content) && r.data.data.flags === 64, 'a member who is not an admin is turned away, privately');
-      r = await reply(await submit('sneaky', { user: { id: 'd-player' }, permissions: '0' }));
-      t.ok(!posts['20'].content.includes('sneaky'), 'and so is a form they send anyway');
-      r = await reply(await open(admin, env));
-      t.ok(/not set up/.test(r.data.data.content), 'without its settings it says so');
+      let r = await said(open(link('20'), { user: { id: 'd-player' }, permissions: '1024' }));
+      t.ok(/Only server admins/.test(r.data.content) && r.data.flags === 64, 'a member who is not an admin is turned away, privately');
+      await submit('20', 'sneaky', { user: { id: 'd-player' }, permissions: '0' });
+      t.eq(patched.length, 0, 'and a form they send anyway changes nothing');
+      r = await said(open(link('20'), admin, env));
+      t.ok(/not set up/.test(r.data.content), 'without the bot token it says so');
 
-      r = await reply(await open(admin));
-      t.eq(r.data.type, 9, 'an admin gets the form, with no sheets account needed');
-      t.eq(r.data.data.custom_id, 'dmnotes:20', 'for the latest announcement, the test post passed over');
+      r = await said(open('not a link'));
+      t.ok(/Copy Message Link/.test(r.data.content), 'something that is not a message link is explained');
+      r = await said(open('https://discord.com/channels/OTHER/C/20'));
+      t.ok(/isn't a link to a message in this server/.test(r.data.content), 'and so is a link to another server');
+      r = await said(open(link('40')));
+      t.ok(/isn't one I posted/.test(r.data.content), 'someone else’s message is refused');
+      r = await said(open(link('50')));
+      t.ok(/no embed/.test(r.data.content), 'as is one with no embed');
 
-      r = await reply(await submit('  The calendar has a home now.\nMore soon.  '));
-      t.eq(posts['20'].content, `### DM's Notes\n> The calendar has a home now.\n> More soon.\n\n${ping}`, 'the notes go at the very top, above the ping');
+      r = await said(open(link('20')));
+      t.eq(r.type, 9, 'an admin with a link gets the form');
+      t.eq(r.data.custom_id, 'dmnotes:800:20', 'for that message');
+      t.eq(r.data.components[0].component.value, 'Old notes.', 'filled with the notes it has, even from their old place');
+
+      r = await said(submit('20', '  The calendar has a home now.\nMore soon.  '));
+      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\n> The calendar has a home now.\n> More soon.\n\n${list}`, 'the notes go inside the embed, above the list');
+      t.eq(posts['20'].embeds[0].title, 'Antæra Wiki updated', 'the rest of the embed is as it was');
+      t.eq(posts['20'].content, ping, 'and the old copy above the embed is taken out');
       t.eq(posts['20'].allowed_mentions, { parse: [], roles: ['555'] }, 'the ping stays a mention, and nothing new can ping');
-      t.ok(/saved: https:\/\/discord.com\/channels\/G\/C\/20/.test(r.data.data.content), 'and the DM gets a link to the post');
+      t.ok(/saved: https:\/\/discord.com\/channels\/700\/800\/20/.test(r.data.content), 'and the DM gets a link to the post');
 
-      r = await reply(await open(admin));
-      t.eq(r.data.data.components[0].component.value, 'The calendar has a home now.\nMore soon.', 'running it again shows the notes to edit');
-      await submit('Rewritten.');
-      t.eq(posts['20'].content, `### DM's Notes\n> Rewritten.\n\n${ping}`, 'new notes replace the old');
-      r = await reply(await submit('x'.repeat(1990)));
-      t.ok(/too long/.test(r.data.data.content) && posts['20'].content.includes('Rewritten.'), 'notes that would not fit change nothing');
-      r = await reply(await submit('   '));
-      t.eq(posts['20'].content, ping, 'an empty form takes them off');
+      r = await said(open(link('20')));
+      t.eq(r.data.components[0].component.value, 'The calendar has a home now.\nMore soon.', 'running it again shows the notes to edit');
+      await submit('20', 'Rewritten.');
+      t.eq(posts['20'].embeds[0].description, `**DM's Notes**\n> Rewritten.\n\n${list}`, 'new notes replace the old');
+      r = await said(submit('20', 'x'.repeat(4000)));
+      t.ok(/room for/.test(r.data.content) && posts['20'].embeds[0].description.includes('Rewritten.'), 'notes that would not fit change nothing');
+      await submit('20', '   ');
+      t.eq(posts['20'].embeds[0].description, list, 'an empty form takes them off');
 
-      // Announcements the bot itself posts, as the wiki does now.
-      posts['40'] = { id: '40', channel_id: 'C', author: { id: 'APP' }, content: ping, embeds: [{ title: 'Antæra Wiki updated' }] };
-      posts['50'] = { id: '50', channel_id: 'C', author: { id: 'APP' }, content: '', embeds: [{ title: 'Grukk: Climb' }] };
-      order = ['50', '40', '30', '20'];
-      r = await reply(await open(admin));
-      t.eq(r.data.data.custom_id, 'dmnotes:40', 'the bot’s own announcement is found, its rolls passed over');
-      await submit('Posted by the bot.', admin, '40');
-      t.eq(posts['40'].content, `### DM's Notes
-> Posted by the bot.
-
-${ping}`, 'and the bot edits it itself');
+      await submit('30', 'From the webhook days.');
+      t.eq(posts['30'].embeds[0].description, `**DM's Notes**\n> From the webhook days.\n\n${list}`, 'a post the wiki’s webhook made is edited through the webhook');
+      t.eq(patched.at(-1), '30');
     } finally {
       globalThis.fetch = outer;
     }
 
     const registered = await (await fetch(new URL('../scripts/discord-commands.json', import.meta.url))).json();
-    t.eq(registered.find((c) => c.name === 'dmnotes')?.default_member_permissions, '8', '/dmnotes is registered for Administrators only');
+    const command = registered.find((c) => c.name === 'dmnotes');
+    t.eq(command?.default_member_permissions, '8', '/dmnotes is registered for Administrators only');
+    t.eq(command?.options?.[0]?.name, 'message', 'and asks for the message link');
   });
 
-  test('/embedmsg: an admin picks a channel, writes the message, and the bot posts it as an embed', async (t) => {
+  test('/embedmsg: an admin picks a channel and writes the message in one form, and the bot posts it as an embed', async (t) => {
     const sent = [];
     const outer = globalThis.fetch;
     globalThis.fetch = async (input, init = {}) => {
@@ -246,9 +257,12 @@ ${ping}`, 'and the bot edits it itself');
     try {
       const bot = { ...env, DISCORD_BOT_TOKEN: 'bot-token', DISCORD_API: 'https://bot.discord.test/api/v10' };
       const admin = { user: { id: 'd-dm' }, permissions: '8' };
-      const open = (member, e = bot) => handleInteraction(e, { type: 2, guild_id: 'G', member, data: { name: 'embedmsg', options: [{ name: 'channel', type: 7, value: '555' }] } });
+      const open = (member, e = bot) => handleInteraction(e, { type: 2, guild_id: 'G', member, data: { name: 'embedmsg' } });
       const submit = (value, channel = '555', member = admin) => handleInteraction(bot, { type: 5, guild_id: 'G', member, data: {
-        custom_id: `embedmsg:${channel}`, components: [{ type: 18, id: 1, component: { type: 4, id: 2, custom_id: 'message', value } }] } });
+        custom_id: 'embedmsg:form', components: [
+          { type: 18, id: 1, component: { type: 8, id: 2, custom_id: 'channel', values: channel ? [channel] : [] } },
+          { type: 18, id: 3, component: { type: 4, id: 4, custom_id: 'message', value } },
+        ] } });
 
       let r = await reply(await open({ user: { id: 'd-player' }, permissions: '1024' }));
       t.ok(/Only server admins/.test(r.data.data.content) && r.data.data.flags === 64, 'a member who is not an admin is turned away, privately');
@@ -258,14 +272,19 @@ ${ping}`, 'and the bot edits it itself');
       t.ok(/not set up/.test(r.data.data.content), 'without the bot token it says so');
 
       r = await reply(await open(admin));
-      t.eq(r.data.type, 9, 'the channel chosen, the form for the message opens');
-      t.eq(r.data.data.custom_id, 'embedmsg:555', 'carrying the channel');
+      t.eq(r.data.type, 9, 'the command opens the form at once');
+      const [channel, message] = r.data.data.components;
+      t.eq(channel.component.type, 8, 'whose first part is a channel dropdown');
+      t.eq(channel.component.channel_types, [0, 5], 'of text and announcement channels');
+      t.eq(message.component.custom_id, 'message', 'and second the message');
 
       const rules = '**Server Rules**\n**1)** Be Respectful To Others @everyone';
       r = await reply(await submit(`  ${rules}  `));
-      t.eq(sent[0], { channel: '555', embeds: [{ description: rules, color: 0x7c5cff }], allowed_mentions: { parse: [] } }, 'the message goes up as an embed in that channel, pinging no one');
+      t.eq(sent[0], { channel: '555', embeds: [{ description: rules, color: 0x7c5cff }], allowed_mentions: { parse: [] } }, 'the message goes up as an embed in the chosen channel, pinging no one');
       t.ok(/Posted in <#555>: https:\/\/discord.com\/channels\/G\/555\/900/.test(r.data.data.content) && r.data.data.flags === 64, 'and the admin is told where, privately');
 
+      r = await reply(await submit('Hello', ''));
+      t.ok(/Choose the channel/.test(r.data.data.content), 'no channel chosen, nothing is posted');
       r = await reply(await submit('Hello', '666'));
       t.ok(/can't post in <#666>/.test(r.data.data.content), 'a channel the bot may not post in is named, with what it needs');
     } finally {
@@ -275,7 +294,7 @@ ${ping}`, 'and the bot edits it itself');
     const registered = await (await fetch(new URL('../scripts/discord-commands.json', import.meta.url))).json();
     const command = registered.find((c) => c.name === 'embedmsg');
     t.eq(command?.default_member_permissions, '8', '/embedmsg is registered for Administrators only');
-    t.eq(command?.options?.[0]?.type, 7, 'and asks for a channel');
+    t.ok(!command?.options?.length, 'and asks for nothing in the command itself');
   });
 
   return cases;

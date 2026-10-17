@@ -95,24 +95,21 @@
   },
   {
     "name": "dmnotes",
-    "description": "Write the DM's Notes at the top of the wiki's latest announcement",
-    "default_member_permissions": "8"
+    "description": "Write the DM's Notes on a wiki announcement, by its message link",
+    "default_member_permissions": "8",
+    "options": [
+      {
+        "type": 3,
+        "name": "message",
+        "description": "The announcement's link: right-click it, Copy Message Link",
+        "required": true,
+        "max_length": 200
+      }
+    ]
   },
   {
     "name": "embedmsg",
     "description": "Post a message from the bot, as an embed, in a channel",
-    "default_member_permissions": "8",
-    "options": [
-      {
-        "type": 7,
-        "name": "channel",
-        "description": "Where to post it",
-        "required": true,
-        "channel_types": [
-          0,
-          5
-        ]
-      }
-    ]
+    "default_member_permissions": "8"
   }
 ]

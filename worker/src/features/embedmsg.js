@@ -1,12 +1,12 @@
 // /embedmsg: a message from the bot, as an embed, in a channel of the admin's choosing.
 //
-//   /embedmsg channel     opens a form for the message; sending it posts the
-//                         message as an embed in that channel, as the bot
+//   /embedmsg             opens a form: the channel, from a dropdown, and the
+//                         message; sending it posts the message as an embed
+//                         in that channel, as the bot
 //
-// The channel is picked in the command, the message written in the form, where
-// it can run to several lines and use Discord's formatting. Nothing in it can
-// ping anyone. Only a server admin can use it, as with /dmnotes: registered for
-// the Administrator permission, and checked again here.
+// The message can run to several lines and use Discord's formatting. Nothing
+// in it can ping anyone. Only a server admin can use it, as with /dmnotes:
+// registered for the Administrator permission, and checked again here.
 //
 // Settings: DISCORD_BOT_TOKEN. The bot needs View Channel, Send Messages and
 // Embed Links in the channel it posts to.
@@ -28,18 +28,22 @@ export const isEmbedMsg = (interaction) => interaction.data?.name === 'embedmsg'
 export async function embedMsg(env, interaction) {
   if (!isAdmin(interaction)) return say('Only server admins can use /embedmsg.');
   if (!env.DISCORD_BOT_TOKEN) return say('/embedmsg is not set up on this server yet.');
-  return interaction.data?.custom_id ? post(env, interaction) : openForm(interaction);
+  return interaction.data?.custom_id ? post(env, interaction) : openForm();
 }
 
-function openForm(interaction) {
-  const channel = (interaction.data?.options || []).find((o) => o.name === 'channel')?.value;
-  if (!/^\d{1,25}$/.test(String(channel || ''))) return say('Choose the channel to post in.');
+function openForm() {
   return json({
     type: MODAL,
     data: {
-      custom_id: PREFIX + channel,
+      custom_id: PREFIX + 'form',
       title: 'Embedded message',
       components: [{
+        type: 18,
+        label: 'Channel',
+        description: 'Where the bot posts it.',
+        // Text and announcement channels.
+        component: { type: 8, custom_id: 'channel', channel_types: [0, 5], min_values: 1, max_values: 1, required: true },
+      }, {
         type: 18,
         label: 'Message',
         description: 'Posted by the bot as an embed. Discord formatting works.',
@@ -50,8 +54,9 @@ function openForm(interaction) {
 }
 
 async function post(env, interaction) {
-  const channel = interaction.data.custom_id.slice(PREFIX.length);
-  if (!/^\d{1,25}$/.test(channel)) return say('That form is not one this bot made.');
+  if (interaction.data.custom_id !== PREFIX + 'form') return say('That form is not one this bot made.');
+  const channel = String(field(interaction.data.components, 'channel') || '');
+  if (!/^\d{1,25}$/.test(channel)) return say('Choose the channel to post in.');
   const message = String(field(interaction.data.components, 'message') || '').trim();
   if (!message) return say('There was no message to post.');
   try {
