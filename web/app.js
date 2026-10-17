@@ -181,6 +181,7 @@ async function start() {
 
   document.body.append(...[header(), notice(), h('main#main'), footer(), h('div#datalists.hidden')].filter(Boolean));
   window.addEventListener('hashchange', route);
+  dismissMenus();
   window.addEventListener('library-synced', (ev) => {
     refreshDatalists();
     // Entries that arrived from another device appear in an open library view.
@@ -366,6 +367,32 @@ function header() {
       app.status,
       themeSwitch(),
       accountMenu()));
+}
+
+/**
+ * Let the account menu be dismissed by clicking away from it, or with Escape.
+ *
+ * A <details> on its own only closes when its own summary is clicked a second
+ * time, which is not how a menu behaves anywhere else. Only the header's menu
+ * is treated this way: the folds inside a sheet are the reader's own place
+ * marks and stay where they were put.
+ */
+function dismissMenus() {
+  const open = () => document.querySelectorAll('details.account-menu[open]');
+  const close = () => { for (const menu of open()) menu.open = false; };
+
+  // Pointer down rather than click: the menu is out of the way before whatever
+  // is underneath takes the press, and a touch counts the same as a mouse.
+  document.addEventListener('pointerdown', (ev) => {
+    for (const menu of open()) if (!menu.contains(ev.target)) menu.open = false;
+  });
+  // Escape closes it and hands the keyboard back to the name that opened it.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    for (const menu of open()) { menu.open = false; menu.querySelector('summary')?.focus(); }
+  });
+  // A link inside the menu has taken the reader somewhere: its work is done.
+  window.addEventListener('hashchange', close);
 }
 
 /** What a sign-in left to say, under the header bar rather than on it. */
