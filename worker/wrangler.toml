@@ -7,7 +7,7 @@
 #   wrangler d1 migrations apply antaera-sheets --remote --config worker/wrangler.toml
 #   wrangler deploy --config worker/wrangler.toml
 
-name = "antaera-sheets"
+name = "antaera-bot"
 main = "src/index.js"
 compatibility_date = "2026-01-01"
 workers_dev = true

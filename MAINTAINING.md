@@ -3,7 +3,7 @@
 The repository sits beside the Antæra Wiki on the DM's machine:
 
     F:\! Antaera Claude\antaera_Wiki
-    F:\! Antaera Claude\antaera_Sheets
+    F:\! Antaera Claude\antaera_Bot
 
 ## Running it locally
 

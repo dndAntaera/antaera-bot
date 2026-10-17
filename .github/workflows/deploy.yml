@@ -126,7 +126,7 @@ jobs:
         run: |
           if [ -z "$DISCORD_BOT_TOKEN" ]; then echo "No DISCORD_BOT_TOKEN secret; commands not registered."; exit 0; fi
           python3 scripts/register-discord-commands.py \
-            --endpoint https://antaera-sheets.antaerasheets.workers.dev/discord/interactions
+            --endpoint https://antaera-bot.antaerasheets.workers.dev/discord/interactions
       - name: Say why it was skipped
         if: steps.check.outputs.ready != 'true'
         run: echo "No CLOUDFLARE_API_TOKEN secret, so the Worker was not deployed. See MAINTAINING.md."
