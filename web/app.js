@@ -24,7 +24,6 @@ import {
   identityPanel, levelsPanel, abilitiesPanel, combatPanel, skillsPanel,
   houserulesPanel, textPanel, trackersPanel, hitPointsPanel, startingWealthPanel,
   effectsPanel, contentPanel, paintEffects, paintConditions, paintContent, paintAcTable,
-  customClassesPanel, blankClassFor,
 } from './ui/sheet.js';
 import { referenceNow, lookUp } from './reference.js';
 import { SHEET_PAGES, pageFor, pageForNotice, sheetTabs } from './ui/sheet-pages.js';
@@ -58,7 +57,6 @@ const PANELS = {
     h('div.panel-body', variantsStrip())),
   identity: identityPanel,
   levels: levelsPanel,
-  customClasses: customClassesPanel,
   abilities: abilitiesPanel,
   combat: combatPanel,
   attackCards: fromPart('inventory', (a, m) => m.attackCardsPanel(a)),
@@ -116,6 +114,28 @@ app.saveCustomItem = (entry) => {
 
 /** The shelves this character may take content from: its campaign's, then the player's. */
 app.shelves = () => (app.character ? shelvesFor(app.character) : []);
+
+/**
+ * The names a character may choose of a kind: the SRD's, the variant rules'
+ * it has switched on, and the User Content it may use - what a custom
+ * character's dropdowns hold (ui/names.js).
+ */
+app.contentNames = (kind) => {
+  const shelves = app.character ? shelvesFor(app.character).map((s) => s.shelf.load()) : [];
+  const from = (plural) => shelves.flatMap((shelf) => (shelf[plural] || []).map((e) => e.name));
+  const idx = app.derived?.index;
+  const on = (variant) => !variant || Boolean(app.derived?.modules?.[variant]);
+  const names = (...lists) => [...new Set(lists.flat().filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  switch (kind) {
+    case 'class': return names(app.rules.classes.classes.filter((c) => !c.npcClass).map((c) => c.name), idx ? [...idx.classByName.values()].filter((c) => c.custom).map((c) => c.name) : [], from('classes'));
+    case 'race': return names((app.rules.races?.races || []).map((r) => r.name), (app.rules.variantContent?.races || []).filter((r) => on(r.variant)).map((r) => r.name), idx ? [...idx.raceByName.keys()] : [], from('races'));
+    case 'feat': return names((app.rules.featRules || []).filter((f) => on(f.variant)).map((f) => f.name), idx ? [...idx.featByName.keys()] : [], from('feats'));
+    case 'template': return names(idx ? [...idx.templateByName.keys()] : [], from('templates'));
+    case 'feature': return names(idx ? [...idx.featureByName.keys()] : [], from('features'));
+    case 'spell': return names(idx ? [...(idx.spellByName?.keys() || [])] : [], from('spells'));
+    default: return [];
+  }
+};
 
 /** Homebrew entries of a kind on the shelves this character may use. */
 app.shelfEntries = (kind) => app.shelves().flatMap(({ shelf }) => shelf.list(kind));
@@ -784,7 +804,7 @@ function newCharacterPanel() {
       button(`New ${rs.shortName} character`, () => createCharacter(chosen)),
       button('New custom character', () => createCharacter(chosen, { custom: true }), {
         subtle: true,
-        title: 'Enter everything yourself: your own race, classes and scores, any feat in any slot. The SRD and your User Content are still there to choose from.',
+        title: 'Anything from the SRD or your User Content, with any feat in any slot and no prerequisites, and scores bought, rolled or entered by hand.',
       }),
       importButton()));
 }
@@ -834,8 +854,9 @@ function rosterRow(row) {
 
 /**
  * A new character, into the creator. A custom one (`opts.custom`) is built
- * from what its player enters: its scores typed in, its own race and classes,
- * any feat in any slot (engine/feats.js).
+ * from anything that exists - the SRD, or the player's User Content - with
+ * any feat in any slot and its scores bought, rolled or entered by hand
+ * (engine/feats.js).
  */
 function createCharacter(rulesetId, opts = {}) {
   if (!canCreate() || !publicRulesets().includes(rulesetId)) return;
@@ -843,10 +864,7 @@ function createCharacter(rulesetId, opts = {}) {
   const character = blankCharacter(rules);
   character.id = newId();
   character.meta = { ...character.meta, created: new Date().toISOString(), owner: app.user?.id || null, wizard: { step: WIZARD_STEPS[0].key } };
-  if (opts.custom) {
-    character.meta.custom = true;
-    character.abilities = { ...(character.abilities || {}), method: 'manual' };
-  }
+  if (opts.custom) character.meta.custom = true;
   local.save(toFile(character));
   location.hash = `#/create/${character.id}/${WIZARD_STEPS[0].key}`;
 }
@@ -1251,8 +1269,7 @@ const RESHAPES = [
   [/^(feats|features|wealth\.items)\.\d+\.uses$/, ['trackers', 'abilitiesList']],
   [/^(feats|features|race|templates)\.(\d+\.)?specials\.\d+\.(name|type|uses|usesPer|level|spellLevel|dcAbility|save)$/, ['trackers', 'abilitiesList']],
   [/^activeSpells\.\d+\.on$/, ['abilitiesList', 'trackers']],
-  [/^levels\.\d+\.[ab]$/, ['casting', 'classChoices', 'skills', 'customClasses']],
-  [/^content\.classes\.\d+\.(hd|bab|saves|skillPoints|classSkills|casting)/, ['levels', 'skills', 'casting', 'feats']],
+  [/^levels\.\d+\.[ab]$/, ['casting', 'classChoices', 'skills']],
 ];
 
 function onEdit(path, value, el, ev) {
@@ -1277,13 +1294,6 @@ function onEdit(path, value, el, ev) {
       embedded = true;
       break;
     }
-  }
-
-  // A custom character's class that nothing defines is written onto it, to be filled in.
-  if (app.character.meta?.custom && ev.type === 'change' && /^levels\.\d+\.[ab]$/.test(path) && value) {
-    const known = app.rules.classes.classes.some((x) => x.name === value)
-      || (app.character.content?.classes || []).some((x) => x.name === value);
-    if (!known) embed(app.character, 'class', blankClassFor(value));
   }
 
   recompute();

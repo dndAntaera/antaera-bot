@@ -62,7 +62,7 @@ export const WIZARD_STEPS = [
       'Your class decides your hit die, how fast your attack bonus and saves grow, and how many skill points you get.',
       'Choose a class for each level - typing narrows the list. A different class on a row is multiclassing. With gestalt switched on (under Concept), every level takes a second class as well.',
     ],
-    panels: ['levels', 'customClasses', 'classChoices'],
+    panels: ['levels', 'classChoices'],
     notices: ['levels'],
     catalog: 'class',
   },
@@ -328,7 +328,7 @@ function conceptStep(app, ways) {
   return h('div.wizard-body',
     c.meta?.custom ? h('section.panel.wizard-custom', h('div.panel-body',
       h('h3', { text: 'A custom character' }),
-      h('p', { text: 'Everything this character is built of can be entered by hand: a race of your own with its traits, classes you define with their hit die, attack bonus, saves and features, ability scores as you set them, and any feat in any slot. The SRD and your User Content are still there to choose from. Skills work as they always do.' }))) : null,
+      h('p', { text: 'Built from anything that exists - the SRD, or your User Content - with fewer of the rules\u2019 limits: any feat in any slot, with no prerequisites asked, and ability scores bought, rolled or entered as you choose. Everything is chosen from a list; to use something of your own, write it in User Content first. Skills work as they always do.' }))) : null,
     h('section.panel', h('div.panel-body',
       row(labelled('Character name', field('name', c.name, { placeholder: 'What they are called', className: 'grow wizard-name-field' }), { wide: true })),
       row(
@@ -376,12 +376,25 @@ function pickerBox(opts) {
 function raceStep(app, ways) {
   const chosen = app.character.race?.name || '';
   const choices = ways.raceChoices();
+  // A custom character's race is one that exists, chosen from the list.
+  const custom = Boolean(app.character.meta?.custom);
+  const customPick = () => {
+    const names = app.contentNames?.('race') || choices.map((r) => r.name);
+    return labelled('Race', h('select.field.wizard-pick-field', {
+      dataset: { unbound: '' },
+      'aria-label': 'Race',
+      onchange: (ev) => ways.choose('race.name', ev.target.value),
+    },
+    h('option', { value: '', text: '- choose a race -', selected: !chosen }),
+    names.map((name) => h('option', { value: name, text: name, selected: name === chosen })),
+    chosen && !names.includes(chosen) ? h('option', { value: chosen, text: `${chosen} (in neither the SRD nor User Content)`, selected: true }) : null));
+  };
   const adjust = (a = {}) => Object.entries(a).filter(([, v]) => v).map(([k, v]) => `${v > 0 ? '+' : ''}${v} ${k.toUpperCase()}`).join(', ') || 'no adjustments';
   const picked = choices.find((r) => r.name === chosen);
 
   return h('div.wizard-body',
     h('section.panel', h('div.panel-body',
-      pickerBox({
+      custom ? h('div.wizard-pick', customPick()) : pickerBox({
         label: 'Race',
         listId: 'wizard-race-names',
         value: chosen,

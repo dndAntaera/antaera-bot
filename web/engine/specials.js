@@ -19,6 +19,9 @@
 //   dcAbility   the ability a supernatural ability's DC is built on
 //   effects     what it changes on the sheet: effects, as engine/effects.js has
 //               them, a condition making one situational
+//   feat        a feat it grants, from the SRD or User Content - a class's
+//               bonus feat, a race's Alertness - held without filling a slot;
+//               featChoice is what the feat applies to, when it asks
 //
 // The DCs are the SRD's, from Special Abilities:
 //
@@ -71,7 +74,7 @@ export const specialMark = (special) => SPECIAL_TYPES[special?.type]?.mark || nu
 export const blankSpecial = (extra = {}) => ({ name: '', type: '', text: '', uses: null, usesPer: 'day', effects: [], ...extra });
 
 /** Whether a special has anything in it at all. */
-const filled = (s) => s && (String(s.name || '').trim() || String(s.text || '').trim() || (s.effects || []).length || num(s.uses) > 0);
+const filled = (s) => s && (String(s.name || '').trim() || String(s.text || '').trim() || (s.effects || []).length || num(s.uses) > 0 || s.feat);
 
 /**
  * The specials of a holder that are in force: all of them, or for a class,
@@ -167,6 +170,7 @@ export function characterSpecials(groups, ctx) {
           remaining: uses - used,
           dc: specialDC(special, ctx),
           effects: (special.effects || []).filter((e) => e && e.target),
+          feat: special.feat ? { name: special.feat, choice: special.featChoice || null } : null,
         });
       });
     }

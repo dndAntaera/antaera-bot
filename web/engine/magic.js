@@ -44,6 +44,37 @@ function slotCount(value) {
   return m ? { base: Number(m[1]), extra: m[2] ? Number(m[2]) : 0 } : null;
 }
 
+/** The SRD's short names for its spell lists, as a spell's Level line writes them. */
+const LIST_SHORT = {
+  sor: ['Sorcerer'], wiz: ['Wizard'], clr: ['Cleric'], drd: ['Druid'], brd: ['Bard'],
+  pal: ['Paladin'], rgr: ['Ranger'], adp: ['Adept'], asn: ['Assassin'], blk: ['Blackguard'],
+};
+
+/**
+ * The classes a spell's or power's Level line puts it on, and at what level:
+ * "Sor/Wiz 3, Clr 4" -> { Sorcerer: 3, Wizard: 3, Cleric: 4 }; "Psion/wilder 2"
+ * -> { Psion: 2, Wilder: 2 }. A name is matched to a class the caller knows,
+ * whatever its case, so homebrew written by hand reaches the right list.
+ *
+ * @param classNames  the class names to match against
+ */
+export function listLevels(text, classNames = []) {
+  const byLower = new Map(classNames.map((n) => [String(n).toLowerCase(), n]));
+  const out = {};
+  for (const part of String(text || '').split(/[,;]/)) {
+    const m = part.trim().match(/^(.+?)\s+(\d)$/);
+    if (!m) continue;
+    const level = Number(m[2]);
+    for (const raw of m[1].split('/')) {
+      const name = raw.trim().replace(/\.$/, '');
+      const key = name.toLowerCase();
+      const names = byLower.has(key) ? [byLower.get(key)] : LIST_SHORT[key] || [name.charAt(0).toUpperCase() + name.slice(1)];
+      for (const n of names) out[n] = Math.min(out[n] ?? level, level);
+    }
+  }
+  return out;
+}
+
 /** 0-level, 1st-level, 2nd-level... */
 export function levelLabel(n) {
   if (n === 0) return '0-level';
@@ -84,7 +115,9 @@ export function magicFor(character, summary, abilities, rules, options = {}) {
       if (!casting && !manifesting) continue;
       seen.add(c.name);
 
-      const progression = rules.progression?.[c.name] || c.def.progression || {};
+      // A homebrew class casts or manifests by the tables of the SRD class it names.
+      const progression = rules.progression?.[c.name] || c.def.progression
+        || rules.progression?.[(casting || manifesting).progression] || {};
       const kind = casting?.type === 'divine' ? 'divine' : 'arcane';
       const raised = casting && !c.def.castingAdvance ? advance[kind] : 0;
       if (raised) advance[kind] = 0;

@@ -20,7 +20,7 @@ import {
   itemFromReference, inventoryTotals, carryingCapacity, attackFor, migrateInventory, slotChoices, usableContent, buyItem, removeItem,
   lockedParts, lockChanges, restoreLocked, isLockedPath, lockedSummary,
   parseDice, rollDice, rollSheet, findRoll, rollFor, rollChoices,
-  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS,
+  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS, listLevels,
 } from '../web/engine/index.js';
 
 export function buildSuite(data) {
@@ -766,6 +766,56 @@ export function buildSuite(data) {
   test('an item’s slot is a slot the equipment knows, however it was typed', (t) => {
     t.eq(['Cloak', 'ring', 'Ring1', 'belt', 'Headband', 'armor', '', 'Somewhere odd'].map(slotKeyFor),
       ['shoulders', 'ring', 'ring', 'waist', 'head', 'armor', '', 'Somewhere odd']);
+  });
+
+  test('an ability can grant a feat: held, filling no slot, from the level it comes', (t) => {
+    const make = (levels) => {
+      const c = characterWith(srd, repeat(['Duelist of Steel'], levels));
+      c.abilities.base = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+      embed(c, 'class', { name: 'Duelist of Steel', hd: 10, bab: 'good', saves: { fort: 'good', ref: 'good', will: 'poor' }, skillPoints: 4, classSkills: [],
+        specials: [{ name: 'Keen eye', level: 3, feat: 'Alertness' }] });
+      c.skills = [{ name: 'Spot', subtype: '', ranks: 0, misc: 0 }];
+      return derive(c, srd);
+    };
+    const two = make(2);
+    const three = make(3);
+    t.ok(!two.featPlan.granted.some((g) => g.name === 'Alertness'), 'not before 3rd level');
+    const granted = three.featPlan.granted.find((g) => g.name === 'Alertness');
+    t.eq([granted.level, granted.source], [3, 'Duelist of Steel: Keen eye']);
+    t.eq(three.skills.lines.find((l) => l.name === 'Spot').total - two.skills.lines.find((l) => l.name === 'Spot').total, 2, 'Alertness does what it does');
+  });
+
+  test('a Spellcaster or Manifester class casts by an SRD class\’s tables, from its own list', (t) => {
+    const c = characterWith(srd, [['Hexblade of Ash']]);
+    c.abilities.base = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 14 };
+    embed(c, 'class', { name: 'Hexblade of Ash', hd: 8, bab: 'average', saves: { fort: 'poor', ref: 'poor', will: 'good' }, skillPoints: 2, classSkills: [],
+      spellcaster: true, casting: { ability: 'cha', type: 'arcane', style: 'spontaneous', progression: 'Sorcerer', spellList: { 0: ['Light'], 1: ['Magic Missile'] } } });
+    const caster = derive(c, srd).magic.classes[0];
+    t.eq([caster.name, caster.spontaneous, caster.ability, caster.levels.find((l) => l.level === 1).perDay], ['Hexblade of Ash', true, 'cha', 4], 'a 1st-level sorcerer\’s 3, and 1 for Charisma 14');
+    const m = characterWith(srd, [['Mindknife']]);
+    m.abilities.base = { str: 10, dex: 10, con: 10, int: 14, wis: 10, cha: 10 };
+    embed(m, 'class', { name: 'Mindknife', hd: 8, bab: 'average', saves: { fort: 'poor', ref: 'poor', will: 'good' }, skillPoints: 2, classSkills: [],
+      manifester: true, manifesting: { ability: 'int', progression: 'Psion', powerList: { 1: ['Mind Thrust'] } } });
+    const manifester = derive(m, srd).magic.classes[0];
+    t.eq([manifester.kind, manifester.powerPoints.base], ['manifesting', 2], 'a 1st-level psion\’s 2 power points');
+    t.eq(listLevels('Sor/Wiz 3, Clr 4'), { Sorcerer: 3, Wizard: 3, Cleric: 4 });
+    t.eq(listLevels('Psion/wilder 2', ['Psion', 'Wilder']), { Psion: 2, Wilder: 2 });
+  });
+
+  test('a custom character takes any feat in any slot, but only what exists', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    c.meta = { ...c.meta, custom: true };
+    c.race.name = 'Human';
+    c.feats = [{ name: 'Cleave', slot: 'level:1' }];
+    const d = derive(c, srd);
+    t.ok(!d.notices.some((n) => n.level === 'error' && /Cleave/.test(n.text)), 'no Power Attack needed');
+    c.race.name = 'Moonfolk';
+    c.feats.push({ name: 'Made-up Feat', slot: 'other' });
+    const errors = derive(c, srd).notices.filter((n) => n.level === 'error' && /custom character/.test(n.text)).map((n) => n.text);
+    t.eq(errors.length, 2, 'the race and the feat that exist nowhere');
+    const plain = characterWith(srd, [['Fighter']]);
+    plain.race.name = 'Moonfolk';
+    t.ok(!derive(plain, srd).notices.some((n) => /custom character/.test(n.text)), 'an ordinary character may type its own');
   });
 
   test('a spell’s effects count while it is switched on', (t) => {

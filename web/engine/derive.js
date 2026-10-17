@@ -33,7 +33,7 @@ import {
   collectEffects, resolveEffects, bonusTo, bonusToWithAll, conditionsFor, allConditions,
   unknownTargets, describeTarget,
 } from './effects.js';
-import { contentIndex, raceFacts, resolveEntries, usableContent, CONTENT_TYPES } from './library.js';
+import { contentIndex, raceFacts, resolveEntries, usableContent, featsFromSpecials, CONTENT_TYPES } from './library.js';
 import { activeModules } from './modules.js';
 import { magicFor, magicNotices } from './magic.js';
 import { trackersFor, trackerNotices } from './trackers.js';
@@ -43,7 +43,7 @@ import {
   variantArmorClass, variantHealth, variantScores, magicRatingFor, spontaneousMetamagicFor,
   skillSystemOf, skillsKnownAllowed, variantNotices,
 } from './variants.js';
-import { featPlan, featSlots, featNotices, featRuleIndex } from './feats.js';
+import { featPlan, featSlots, featNotices, featRuleIndex, isCustom } from './feats.js';
 import { classFeatures, featureEffects, domainClassSkills, domainFeats, domainTrackers } from './features.js';
 import { languagePlan, languageNotices } from './languages.js';
 import { traitEntries, traitNotices } from './traits.js';
@@ -135,6 +135,9 @@ export function derive(stored, rules, options = {}) {
     gear: equippedGear(character, race.speed),
     wealth: { ...(character.wealth || {}), items: (character.wealth?.items || []).map((item) => ({ ...item, equipped: inSlot.has(item.id) || (item.equipped !== false && !item.stats) })) },
   };
+  // Feats an ability grants count as held too: a class's bonus feat, a race's Alertness.
+  const specialFeats = featsFromSpecials(view, index, (summary.sides || []).flatMap((side) => side.classes));
+  granted.push(...specialFeats);
   const entries = resolveEntries(view, index, granted, { classes: (summary.sides || []).flatMap((side) => side.classes) });
   // Traits and flaws (Unearthed Arcana), with what the SRD says each one does.
   entries.other = modules.traitsFlaws
@@ -311,7 +314,7 @@ export function derive(stored, rules, options = {}) {
   }
 
   // Feats: every slot, what fills it, and whether it may.
-  const plan = featPlan(character, derived, rules, { raceBonus: bonusTo(resolved, 'feats.bonus'), fromFlaws: feats.fromFlaws, granted: domainFeats(character, summary) });
+  const plan = featPlan(character, derived, rules, { raceBonus: bonusTo(resolved, 'feats.bonus'), fromFlaws: feats.fromFlaws, granted: [...domainFeats(character, summary), ...specialFeats] });
   derived.featPlan = plan;
   feats.allowed = plan.slots.length;
   feats.taken = plan.slots.filter((slot) => slot.feat).length + plan.extra.length;
@@ -524,6 +527,19 @@ function notices(character, d, rules) {
       if (c.def.missing) {
         add('error', `"${c.name}" is not a class the sheet knows. Add it under User Content so its numbers can be counted.`, 'levels');
       }
+    }
+  }
+  // A custom character is built only of what exists: the SRD's, or the player's User Content.
+  if (isCustom(character)) {
+    const srdFeats = new Set((rules.featRules || []).map((f) => f.name.toLowerCase()));
+    const missing = [
+      character.race?.name && !d.race.known ? `the race ${character.race.name}` : null,
+      ...(character.templates || []).filter((t) => t?.name && !d.index.templateByName.has(t.name)).map((t) => `the template ${t.name}`),
+      ...(character.feats || []).filter((f) => f?.name && !srdFeats.has(f.name.toLowerCase()) && !d.index.featByName.has(f.name)).map((f) => `the feat ${f.name}`),
+      ...(character.features || []).filter((f) => f?.name && !d.index.featureByName.has(f.name)).map((f) => `the misc feature ${f.name}`),
+    ].filter(Boolean);
+    for (const what of missing) {
+      add('error', `A custom character takes only what is in the SRD or User Content, and ${what} is in neither. Choose another, or write it in User Content first.`, 'identity');
     }
   }
   if (d.gestalt) {

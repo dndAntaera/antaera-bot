@@ -12,8 +12,10 @@ import {
 } from './dom.js';
 import { specialsEditor } from './specials-editor.js';
 import {
-  CONTENT_TYPES, CONTENT_KINDS, blankEntry, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, DISCIPLINES, SUBDISCIPLINES,
+  CONTENT_TYPES, CONTENT_KINDS, blankEntry, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, DISCIPLINES, SUBDISCIPLINES, CASTING_STYLES,
 } from '../engine/library.js';
+import { levelLabel, listLevels } from '../engine/magic.js';
+import { loadReference, referenceNow } from '../reference.js';
 import { TARGETS } from '../engine/effects.js';
 import { withSpecials, SPECIAL_TYPES } from '../engine/specials.js';
 import { CREATURE_TYPES, CREATURE_SUBTYPES } from '../engine/creatures.js';
@@ -144,6 +146,7 @@ function summaryLine(kind, entry) {
 function migrate(kind, entry) {
   const out = withSpecials(entry, kind);
   if (kind === 'item' && out.slot) return { ...out, slot: slotKeyFor(out.slot) };
+  if (kind === 'class' && out.spellcaster === undefined && out.casting?.ability) return { ...out, spellcaster: true };
   return out;
 }
 
@@ -165,6 +168,10 @@ function editor(app, store, kind, index, stored, go) {
     subtypes: [...new Set([...CREATURE_SUBTYPES, ...inUse('subtype')])].sort((a, b) => a.localeCompare(b)),
   };
 
+  // The feats an ability may grant: the SRD's, and this library's own.
+  const featNames = [...new Set([...(app.rules.featRules || []).map((f) => f.name), ...store.list('feat').map((f) => f.name).filter(Boolean)])]
+    .sort((a, b) => a.localeCompare(b));
+
   const status = h('span.status', { text: 'saved' });
   let timer = null;
 
@@ -173,16 +180,21 @@ function editor(app, store, kind, index, stored, go) {
     f.hint ? h('p.hint', { text: f.hint }) : null,
     specialsEditor(f.key, () => (entry[f.key] = entry[f.key] || []), {
       skillNames,
+      featNames,
       level: Boolean(f.level),
       addLabel: f.add,
       emptyText: `None yet. ${f.add || 'Add one'} and it shows on the sheet of anyone who takes this.`,
       onShapeChange: () => persist(),
     }));
 
+  // A class's spells or powers: drawn again when Spellcaster or Manifester is ticked.
+  const magic = type.fields.some((f) => f.type === 'magic') ? magicSection(app, store, entry, () => persist()) : null;
+
   const body = type.layout === 'statblock'
-    ? statblock(entry, type, () => persist())
+    ? statblock(entry, type, () => persist(), featNames)
     : [
-      h('div.content-fields', type.fields.filter((f) => f.type !== 'specials').map((f) => fieldFor(f, entry, lists))),
+      h('div.content-fields', type.fields.filter((f) => f.type !== 'specials' && f.type !== 'magic').map((f) => fieldFor(f, entry, lists))),
+      magic?.host,
       type.fields.filter((f) => f.type === 'specials').map(specials),
     ];
 
@@ -230,7 +242,115 @@ function editor(app, store, kind, index, stored, go) {
   }
 
   bindForm(form, () => entry, () => persist());
+  // A class casts spells or manifests powers, not both: ticking one clears the other.
+  if (magic) {
+    form.addEventListener('change', (ev) => {
+      const path = ev.target.dataset?.field;
+      if (path !== 'spellcaster' && path !== 'manifester') return;
+      setTimeout(() => {
+        const other = path === 'spellcaster' ? 'manifester' : 'spellcaster';
+        if (entry[path]) {
+          entry[other] = false;
+          const box = form.querySelector(`[data-field="${other}"]`);
+          if (box) box.checked = false;
+        }
+        magic.draw();
+        persist();
+      }, 0);
+    });
+  }
   return form;
+}
+
+const CASTING_ABILITIES = [['int', 'Intelligence'], ['wis', 'Wisdom'], ['cha', 'Charisma'], ['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution']];
+
+/**
+ * What a Spellcaster or Manifester class casts from: its ability, how it
+ * casts, the SRD class whose tables give its spells per day and known (or
+ * power points and powers known), and its list, built level by level from the
+ * SRD's spells or powers and the library's own.
+ */
+function magicSection(app, store, entry, persist) {
+  const host = h('section.content-magic');
+  const draw = () => {
+    const power = Boolean(entry.manifester);
+    if (!power && !entry.spellcaster) { refill(host); host.hidden = true; return; }
+    host.hidden = false;
+    const at = power ? 'manifesting' : 'casting';
+    const block = entry[at] = entry[at] || {};
+    if (!block.ability) block.ability = power ? 'int' : 'int';
+    if (!power && !block.type) block.type = 'arcane';
+    if (!power && !block.style) block.style = 'prepared';
+    const listKey = power ? 'powerList' : 'spellList';
+    const list = block[listKey] = block[listKey] || {};
+    const kind = power ? 'powers' : 'spells';
+    const reference = referenceNow(kind);
+    if (!reference) loadReference(kind).then(draw).catch(() => {});
+
+    // What can go on the list, each with the level it is usually found at.
+    const classNames = app.rules.classes.classes.map((c) => c.name);
+    const choices = new Map();
+    for (const e of reference?.list || []) {
+      const levels = Object.values(e.levels || {}).filter((n) => Number.isFinite(n));
+      choices.set(e.name, { level: levels.length ? Math.min(...levels) : (power ? 1 : 0), from: 'SRD' });
+    }
+    for (const sp of store.list('spell').filter((x) => x?.name && (x.mode === 'power') === power)) {
+      const levels = Object.values(listLevels(sp.level, classNames));
+      choices.set(sp.name, { level: levels.length ? Math.min(...levels) : (power ? 1 : 0), from: 'User Content' });
+    }
+    const tables = app.rules.classes.classes.filter((c) => (power ? c.manifesting?.ability : c.casting?.ability)).map((c) => c.name);
+    const levels = power ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const listed = new Set(Object.values(list).flat());
+    const changed = () => { persist(); draw(); };
+
+    const name = h('select.field.grow', { dataset: { unbound: '' }, 'aria-label': power ? 'A power' : 'A spell' },
+      h('option', { value: '', text: reference ? `- ${power ? 'a power' : 'a spell'} -` : `- loading the SRD\u2019s ${kind} -` }),
+      ['User Content', 'SRD'].map((from) => {
+        const names = [...choices.entries()].filter(([n, c]) => c.from === from && !listed.has(n)).map(([n]) => n).sort((a, b) => a.localeCompare(b));
+        return names.length ? h('optgroup', { label: from }, names.map((n) => h('option', { value: n, text: n }))) : null;
+      }));
+    const level = h('select.field', { dataset: { unbound: '' }, 'aria-label': 'At level' },
+      levels.map((L) => h('option', { value: L, text: levelLabel(L) })));
+    name.addEventListener('change', () => {
+      const suggested = choices.get(name.value)?.level;
+      if (suggested !== undefined && levels.includes(suggested)) level.value = String(suggested);
+    });
+
+    refill(host,
+      h('h3', { text: power ? 'Manifesting' : 'Spellcasting' }),
+      h('div.content-fields',
+        h('div.cell', h('span.label', { text: power ? 'Manifesting ability' : 'Casting ability' }), select(`${at}.ability`, block.ability, CASTING_ABILITIES)),
+        power ? null : h('div.cell', h('span.label', { text: 'Arcane or divine' }), select('casting.type', block.type, [['arcane', 'Arcane'], ['divine', 'Divine']])),
+        power ? null : h('div.cell', h('span.label', { text: 'How it casts' }), select('casting.style', block.style, CASTING_STYLES)),
+        h('div.cell',
+          h('span.label', { text: power ? 'Power points and powers known as a' : 'Spells per day and known as a' }),
+          listSelect(`${at}.progression`, block.progression || '', tables, '- choose a class -'),
+          h('span.hint', { text: power ? 'Its tables: power points, powers known and highest power level, by class level.' : 'Its tables: spells per day and spells known, by class level.' }))),
+      h('h4', { text: power ? 'Power list' : 'Spell list' }),
+      h('p.hint', { text: `The ${kind} this class ${power ? 'learns' : 'casts'} from, by level: the SRD\u2019s and your User Content\u2019s. A character of this class chooses from these.` }),
+      h('div.magic-list-levels', levels.map((L) => {
+        const names = (list[L] || []).filter(Boolean);
+        return h('div.magic-list-level',
+          h('span.magic-list-label', { text: levelLabel(L) }),
+          names.length
+            ? h('ul.language-chips', names.map((n, i) => h('li.language-chip',
+              h('span', { text: n }),
+              choices.get(n)?.from === 'User Content' ? h('span.tag', { text: 'User Content' }) : null,
+              button('x', () => { list[L].splice(i, 1); if (!list[L].length) delete list[L]; changed(); }, { subtle: true, danger: true, title: `Take ${n} off the list` }))))
+            : h('span.hint', { text: 'none' }));
+      })),
+      h('div.row.magic-list-adder',
+        name,
+        level,
+        button('Add to the list', () => {
+          if (!name.value) return;
+          const L = Number(level.value);
+          list[L] = [...(list[L] || []), name.value];
+          changed();
+        }, { subtle: true })));
+  };
+  draw();
+  return { host, draw };
 }
 
 /** A dropdown of a fixed list, keeping a value it does not hold rather than losing it. */
@@ -278,7 +398,7 @@ function fieldFor(f, entry, lists) {
  * reads the same with the psionic words: Discipline, Display, Manifesting
  * Time, Power Resistance, Power Points, Augment.
  */
-function statblock(entry, type, onShapeChange) {
+function statblock(entry, type, onShapeChange, featNames) {
   const host = h('div.statblock-host');
   const field$ = (key) => type.fields.find((f) => f.key === key);
 
@@ -326,6 +446,7 @@ function statblock(entry, type, onShapeChange) {
         h('p.hint', { text: effects.hint }),
         specialsEditor('specials', () => (entry.specials = entry.specials || []), {
           skillNames: [],
+          featNames,
           addLabel: effects.add,
           emptyText: power ? 'None yet. A power that gives a bonus while it lasts says so here.' : 'None yet. A spell that gives a bonus while it lasts says so here.',
           onShapeChange,

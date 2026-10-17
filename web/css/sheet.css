@@ -1665,6 +1665,20 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 .special-card:not([data-type="sla"]) .only-sla,
 .special-card:not([data-type="su"]) .only-su,
 .special-card:not([data-type="sla"]):not([data-type="su"]) .only-dc { display: none; }
+.special-feat { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; }
+
+/* A Spellcaster's or Manifester's list, level by level, and the row that adds to it. */
+.content-magic h3 { font: 600 var(--text-small)/1 var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); margin: var(--sp-3) 0 var(--sp-2); }
+.content-magic h4 { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--text-small); }
+.content-magic > .hint { margin: 0 0 var(--sp-2); }
+.magic-list-levels { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-2); }
+.magic-list-level { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: var(--sp-2); align-items: baseline; padding: var(--sp-1) 0; border-bottom: var(--hair) solid var(--rule); }
+.magic-list-label { font-weight: 600; font-size: var(--text-small); }
+.magic-list-level .language-chips { margin: 0; }
+.magic-list-adder { align-items: center; flex-wrap: wrap; }
+.magic-list-adder .field { width: auto; }
+.magic-list-adder .field.grow { flex: 1 1 14rem; }
+.special-feat > .cell:last-child { flex: 1 1 12rem; }
 .special-bonuses > summary { font-size: var(--text-small); color: var(--ink-soft); cursor: pointer; }
 .special-bonuses[open] > summary { margin-bottom: var(--sp-2); }
 .special-bonuses > .hint { margin: 0 0 var(--sp-2); font-size: var(--text-tiny); }

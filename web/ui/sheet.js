@@ -20,9 +20,12 @@ import {
 import { describeTarget } from '../engine/effects.js';
 import { CREATURE_TYPES, CREATURE_SUBTYPES } from '../engine/creatures.js';
 import { specialsEditor } from './specials-editor.js';
+import { nameField, choosesOnly } from './names.js';
 import { CONTENT_TYPES, CONTENT_KINDS, unusedContent } from '../engine/library.js';
 
 const SAVES = [['fort', 'Fortitude'], ['ref', 'Reflex'], ['will', 'Will']];
+/** How a custom character's scores are made: bought, rolled, or entered by hand. */
+const CUSTOM_METHODS = ['pointBuy', 'rolled', 'manual'];
 const METHOD_LABELS = {
   pointBuy: 'point buy',
   rolled: 'rolled',
@@ -72,11 +75,12 @@ export function identityPanel(app) {
       labelled('Deity', field('concept.deity', c.concept?.deity, { placeholder: 'None' })),
     ),
     row(
-      labelled('Race', field('race.name', c.race?.name, { list: 'race-names', placeholder: 'Choose or type a race', className: 'grow' })),
+      labelled('Race', nameField(app, 'race.name', c.race?.name, 'race', { placeholder: 'Choose or type a race', className: 'grow' })),
       d.levelAdjustment.capped ? labelled('Level adj. allowed', out('levelAdjustment.allowed', { format: 'signed' })) : null,
     ),
-    raceFacts,
-    known ? null : h('details.aside', { open: (c.race?.specials || []).length > 0 },
+    // A custom character's race is one that exists; there is nothing to type in for it.
+    choosesOnly(app) && !known ? null : raceFacts,
+    known || choosesOnly(app) ? null : h('details.aside', { open: (c.race?.specials || []).length > 0 },
       h('summary', 'Ability adjustments and traits for this race'),
       row(...ABILITIES.map((key) => labelled(key.toUpperCase(),
         field(`race.abilityAdjust.${key}`, c.race?.abilityAdjust?.[key], { type: 'int', width: '3.5rem' })))),
@@ -87,6 +91,7 @@ export function identityPanel(app) {
         return (c.race.specials = c.race.specials || []);
       }, {
         skillNames: d.index.skills.map((x) => x.name),
+        featNames: app.contentNames?.('feat'),
         addLabel: 'Add a trait',
         emptyText: 'None yet. Each trait shows under Special abilities; give one bonuses and they count, give it uses and they are tracked.',
         onShapeChange: () => { app.recompute(); if (app.panels.abilitiesList) app.rebuildPanel('abilitiesList'); if (app.panels.trackers) app.rebuildPanel('trackers'); },
@@ -125,7 +130,7 @@ function templatesBlock(app) {
   const c = app.character;
   const host = h('div.list');
   const rebuild = () => refill(host, c.templates.map((tpl, i) => h('div.list-row',
-    field(`templates.${i}.name`, tpl.name, { list: 'template-names', placeholder: 'Template', className: 'grow' }),
+    nameField(app, `templates.${i}.name`, tpl.name, 'template', { placeholder: 'Template', className: 'grow' }),
     button('x', () => {
       c.templates.splice(i, 1);
       rebuild();
@@ -144,71 +149,6 @@ function templatesBlock(app) {
         app.recompute();
       }, { subtle: true }),
       h('a.hint', { href: '#/content/template', text: 'Write a template of your own' })));
-}
-
-/* ==========================================================================
-   A custom character's own classes
-   ========================================================================== */
-
-const HIT_DICE = [[4, 'd4'], [6, 'd6'], [8, 'd8'], [10, 'd10'], [12, 'd12']];
-const BAB_PROGRESSIONS = [['good', 'Good (+1 per level)'], ['average', 'Average (+3/4)'], ['poor', 'Poor (+1/2)']];
-const SAVE_PROGRESSIONS = [['good', 'Good'], ['poor', 'Poor']];
-const CASTING_ABILITIES = [['', 'None'], ['int', 'Intelligence'], ['wis', 'Wisdom'], ['cha', 'Charisma'], ['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution']];
-
-/** A class a custom character names that nothing defines yet, ready to be filled in. */
-export const blankClassFor = (name) => ({
-  kind: 'class', name, custom: true, source: 'Custom', hd: 8, bab: 'average',
-  saves: { fort: 'poor', ref: 'poor', will: 'poor' }, skillPoints: 2, classSkills: [],
-  casting: { ability: '' }, specials: [],
-});
-
-/**
- * The classes a custom character has written for itself: every class named on
- * its levels that neither the SRD nor its User Content defines, each with its
- * numbers and its features. They are kept on the sheet, as any homebrew it
- * carries is, so the character adds up wherever it goes.
- */
-export function customClassesPanel(app) {
-  const c = app.character;
-  if (!c.meta?.custom) return null;
-  const srd = new Set(app.rules.classes.classes.map((x) => x.name));
-  const named = new Set((c.levels || []).flatMap((l) => [l.a, l.b]).filter(Boolean));
-  const own = ((c.content || {}).classes || [])
-    .map((cls, j) => ({ cls, j }))
-    .filter(({ cls }) => cls?.name && named.has(cls.name) && !srd.has(cls.name));
-  const intSelect = (path, value, options) => {
-    const el = select(path, value, options);
-    el.dataset.kind = 'int';
-    return el;
-  };
-  const reshaped = () => { app.recompute(); for (const key of ['abilitiesList', 'trackers']) if (app.panels[key]) app.rebuildPanel(key); };
-
-  return panel('customClasses', 'Your classes',
-    h('p.hint', { text: 'A custom character’s classes are what you make them. Name one on a level above and it appears here to fill in; a class from the SRD or your User Content needs nothing more.' }),
-    own.length
-      ? own.map(({ cls, j }) => {
-        const at = `content.classes.${j}`;
-        return h('div.block.custom-class',
-          h('h3', { text: cls.name }),
-          row(
-            labelled('Hit die', intSelect(`${at}.hd`, cls.hd ?? 8, HIT_DICE)),
-            labelled('Base Attack Bonus', select(`${at}.bab`, cls.bab || 'average', BAB_PROGRESSIONS)),
-            labelled('Fortitude', select(`${at}.saves.fort`, cls.saves?.fort || 'poor', SAVE_PROGRESSIONS)),
-            labelled('Reflex', select(`${at}.saves.ref`, cls.saves?.ref || 'poor', SAVE_PROGRESSIONS)),
-            labelled('Will', select(`${at}.saves.will`, cls.saves?.will || 'poor', SAVE_PROGRESSIONS)),
-            labelled('Skill points', field(`${at}.skillPoints`, cls.skillPoints, { type: 'int', width: '4rem', title: 'Per level, before Intelligence.' })),
-            labelled('Casting ability', select(`${at}.casting.ability`, cls.casting?.ability || '', CASTING_ABILITIES))),
-          row(labelled('Class skills', field(`${at}.classSkills`, cls.classSkills || [], { type: 'list', placeholder: 'Climb, Jump, Knowledge', className: 'grow' }), { wide: true })),
-          h('h4.custom-class-features', { text: 'Class features' }),
-          specialsEditor(`${at}.specials`, () => (c.content.classes[j].specials = c.content.classes[j].specials || []), {
-            skillNames: app.derived.index.skills.map((x) => x.name),
-            level: true,
-            addLabel: 'Add a class feature',
-            emptyText: 'None yet. Each feature arrives at its level, with its bonuses counted and its uses tracked.',
-            onShapeChange: reshaped,
-          }));
-      })
-      : h('p.empty', { text: 'No classes of your own yet.' }));
 }
 
 /* ==========================================================================
@@ -261,8 +201,8 @@ export function levelsPanel(app) {
       ? h('details.aside',
         h('summary', 'Next level, for training time'),
         row(
-          labelled('Next class', field('nextLevel.a', app.character.nextLevel?.a, { list: 'class-names', placeholder: 'Class' })),
-          gestalt ? labelled('Next second class', field('nextLevel.b', app.character.nextLevel?.b, { list: 'class-names', placeholder: 'Class' })) : null,
+          labelled('Next class', nameField(app, 'nextLevel.a', app.character.nextLevel?.a, 'class', { placeholder: 'Class' })),
+          gestalt ? labelled('Next second class', nameField(app, 'nextLevel.b', app.character.nextLevel?.b, 'class', { placeholder: 'Class' })) : null,
           labelled('Days', out('training.days'))))
       : null);
 
@@ -274,8 +214,8 @@ function levelRows(app, gestalt) {
   const c = app.character;
   return c.levels.map((lvl, i) => h(`div.level-row${gestalt ? '.gestalt' : ''}`,
     h('span.level-no', { text: String(i + 1) }),
-    field(`levels.${i}.a`, lvl.a, { list: 'class-names', placeholder: 'Class' }),
-    gestalt ? field(`levels.${i}.b`, lvl.b, { list: 'class-names', placeholder: 'Class' }) : null,
+    nameField(app, `levels.${i}.a`, lvl.a, 'class', { placeholder: 'Class' }),
+    gestalt ? nameField(app, `levels.${i}.b`, lvl.b, 'class', { placeholder: 'Class' }) : null,
     out(`summary.hitDice.${i}.die`, { className: 'die' }),
     i === 0 && app.derived.hp.perLevel[0]?.basis === 'max'
       ? h('span.out.locked', { text: 'max', title: 'Hit points are maximum at first level.' })
@@ -333,7 +273,7 @@ export function abilitiesPanel(app) {
 
   const methodRow = row(
     labelled('Generated by', select('abilities.method', method,
-      [...new Set([...generation.methods, ...(c.meta?.custom ? ['manual'] : [])])].map((m) => [m, METHOD_LABELS[m] || m]))),
+      (c.meta?.custom ? CUSTOM_METHODS : generation.methods).map((m) => [m, METHOD_LABELS[m] || m]))),
     method === 'pointBuy' && budgets.length > 1 ? labelled('Budget', budgetSelect) : null,
     method === 'pointBuy' ? labelled('Spent', out('pointBuy.spent')) : null,
     method === 'pointBuy' ? labelled('Remaining', out('pointBuy.remaining')) : null,

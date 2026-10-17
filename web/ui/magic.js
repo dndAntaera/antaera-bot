@@ -8,7 +8,7 @@
 // one opens to its full entry.
 
 import { h, button, refill } from './dom.js';
-import { featureVariantOptions, REPLACED_FEATURES } from '../engine/index.js';
+import { featureVariantOptions, REPLACED_FEATURES, listLevels } from '../engine/index.js';
 import { loadReferences, referenceNow, lookUp, referenceHref } from '../reference.js';
 import { referenceCard } from './reference.js';
 
@@ -28,7 +28,47 @@ export function magicTitle(magic) {
  * @param app   the app: character, derived, recompute, rebuildPanel
  * @param ways  from app.js: { rest() }
  */
+/**
+ * What User Content adds to the lists, gathered as the panel is drawn: a
+ * homebrew class's own spell or power list, and each homebrew spell or power
+ * on the lists its Level line names ("Sor/Wiz 3" puts it on the sorcerer's
+ * and the wizard's).
+ */
+let homebrew = { classLists: new Map(), entries: new Map(), byClass: new Map() };
+
+function gatherHomebrew(app) {
+  const index = app.derived.index;
+  const classLists = new Map();
+  for (const def of index.classByName.values()) {
+    const own = def.casting?.spellList || def.manifesting?.powerList;
+    if (def.custom && own) classLists.set(def.name, own);
+  }
+  const entries = new Map();
+  for (const sp of [...(app.shelfEntries?.('spell') || []), ...(index.spellByName?.values() || [])]) {
+    if (sp?.name) entries.set(sp.name, sp);
+  }
+  const classNames = [...index.classByName.keys()];
+  const byClass = new Map();
+  for (const sp of entries.values()) {
+    for (const [cls, level] of Object.entries(listLevels(sp.level, classNames))) {
+      if (!byClass.has(cls)) byClass.set(cls, []);
+      byClass.get(cls).push({ ...asEntry(sp), level });
+    }
+  }
+  homebrew = { classLists, entries, byClass };
+}
+
+/** A homebrew spell or power as the lists read one. */
+const asEntry = (sp) => ({ name: sp.name, school: sp.school || '', discipline: sp.school || '', powerPoints: sp.powerPoints || null, summary: sp.description ? String(sp.description).slice(0, 120) : '', homebrew: true });
+
+/** A spell or power by name: the SRD's, or User Content's. */
+const findEntry = (kind, name) => lookUp(kind, name) || (homebrew.entries.has(name) ? asEntry(homebrew.entries.get(name)) : null);
+
+/** Learning or preparing something from User Content puts a copy on the character. */
+const carry = (app, name) => { if (!lookUp('spells', name) && !lookUp('powers', name) && homebrew.entries.has(name)) app.adopt?.('spell', name); };
+
 export function magicPanel(app, ways) {
+  gatherHomebrew(app);
   const magic = app.derived.magic;
   const title = magicTitle(magic);
   const panelEl = h('section.panel.magic-panel', { id: 'panel-casting', dataset: { panel: 'casting' } },
@@ -231,15 +271,30 @@ function specialistVariants(app, m, school, changed) {
 /** The spells a class may choose at a level, from the reference, less a specialist's prohibited schools. */
 function spellsFor(className, level, state) {
   const prohibited = new Set(state?.prohibited || []);
-  return (referenceNow('spells')?.list || [])
-    .filter((e) => e.levels?.[className] === level && !prohibited.has(e.school));
+  const own = homebrew.classLists.get(className);
+  if (own) {
+    return (own[level] || []).map((name) => findEntry('spells', name) || { name, school: '' })
+      .filter((e) => !prohibited.has(e.school));
+  }
+  return [
+    ...(referenceNow('spells')?.list || []).filter((e) => e.levels?.[className] === level),
+    ...(homebrew.byClass.get(className) || []).filter((e) => e.level === level),
+  ].filter((e) => !prohibited.has(e.school));
 }
 
 /** The names a manifester may learn: its class list and discipline, up to the highest level it can learn. */
 function powersFor(lists, maxLevel) {
-  return (referenceNow('powers')?.list || [])
-    .map((e) => ({ e, level: Math.min(...lists.map((w) => e.levels?.[w]).filter((n) => n !== undefined)) }))
-    .filter(({ level }) => Number.isFinite(level) && level <= maxLevel);
+  const own = homebrew.classLists.get(lists[0]);
+  if (own) {
+    return Object.entries(own).flatMap(([level, names]) => (names || []).map((name) => ({ e: findEntry('powers', name) || { name }, level: Number(level) })))
+      .filter(({ level }) => level <= maxLevel);
+  }
+  const fromHomebrew = lists.flatMap((w) => (homebrew.byClass.get(w) || []).map((e) => ({ e, level: e.level })));
+  return [
+    ...(referenceNow('powers')?.list || [])
+      .map((e) => ({ e, level: Math.min(...lists.map((w) => e.levels?.[w]).filter((n) => n !== undefined)) })),
+    ...fromHomebrew,
+  ].filter(({ level }) => Number.isFinite(level) && level <= maxLevel);
 }
 
 const METAMAGIC = {
@@ -291,6 +346,7 @@ function knownLists(app, m, state, levels, changed) {
         h('div.row.magic-adder',
           dropdown(`Add a ${levelName(l.level)} spell`, '', [{ options: choices.map((e) => ({ value: e.name, text: `${e.name} - ${e.school}` })) }], (name) => {
             if (!name) return;
+            carry(app, name);
             state.known.push({ name, level: l.level });
             changed();
           }, {
@@ -367,6 +423,7 @@ function preparedLists(app, m, state, levels, changed) {
           })),
           h('span.magic-slot-input', { dataset: { unbound: '' } },
             dropdown(`${levelName(l.level)} slot`, entry?.name || '', groups, (name) => {
+              if (name) carry(app, name);
               if (!name) {
                 if (at >= 0) list.splice(at, 1);
               } else if (entry) {
@@ -449,7 +506,7 @@ function manifesterBlock(app, m, state, changed) {
         h('h4', { text: 'Powers known' }),
         h('span.hint', { text: `${m.powersKnown.count} of ${m.powersKnown.allowed}` })),
       h('ul.magic-spells', state.known.map((k, i) => {
-        const power = lookUp('powers', k.name);
+        const power = findEntry('powers', k.name);
         const cost = power?.powerPoints ?? null;
         return spellRow(k.name, 'powers', [
           h('span.tag', { text: `${ordinal(Number(k.level) || 0)}` }),
@@ -462,19 +519,21 @@ function manifesterBlock(app, m, state, changed) {
         const have = new Set(state.known.map((k) => k.name));
         const full = m.powersKnown.count >= m.powersKnown.allowed;
         const byLevel = new Map();
-        for (const { e, level } of powersFor(lists, m.maxPowerLevel)) {
+        const available = powersFor(lists, m.maxPowerLevel);
+        for (const { e, level } of available) {
           if (have.has(e.name)) continue;
           if (!byLevel.has(level)) byLevel.set(level, []);
-          byLevel.get(level).push({ value: e.name, text: `${e.name} (${e.powerPoints ?? '?'} pp)` });
+          if (!byLevel.get(level).some((o) => o.value === e.name)) byLevel.get(level).push({ value: e.name, text: `${e.name} (${e.powerPoints ?? '?'} pp)` });
         }
         const groups = [...byLevel.entries()].sort(([x], [y]) => x - y)
           .map(([level, options]) => ({ label: levelName(level), options: options.sort((x, y) => x.text.localeCompare(y.text)) }));
         return h('div.row.magic-adder', { dataset: { unbound: '' } },
           dropdown('Learn a power', '', groups, (name) => {
             if (!name) return;
-            const power = lookUp('powers', name);
-            const level = power ? Math.min(...lists.map((w) => power.levels?.[w]).filter((n) => n !== undefined)) : 1;
-            state.known.push({ name: power?.name || name, level: Number.isFinite(level) ? level : 1 });
+            const levelsOf = available.filter((x) => x.e.name === name).map((x) => x.level);
+            const level = levelsOf.length ? Math.min(...levelsOf) : 1;
+            carry(app, name);
+            state.known.push({ name, level: Number.isFinite(level) ? level : 1 });
             changed();
           }, {
             disabled: full || !groups.length,
@@ -489,15 +548,35 @@ function manifesterBlock(app, m, state, changed) {
 
 /** A spell or power by name: its summary, the way to its full entry, and actions. */
 function spellRow(name, kind, actions, m, state) {
-  const entry = lookUp(kind, name);
+  const entry = findEntry(kind, name);
   const prohibited = kind === 'spells' && entry && (state?.prohibited || []).includes(entry.school);
   return h(`li.magic-spell${prohibited ? '.is-prohibited' : ''}`,
     h('div.magic-spell-line',
       h('span.magic-spell-name', { text: entry?.name || name }),
-      h('span.hint.magic-spell-summary', { text: entry ? [entry.school || entry.discipline, entry.summary].filter(Boolean).join(' - ') : 'Not in the SRD reference' }),
+      h('span.hint.magic-spell-summary', { text: entry ? [entry.school || entry.discipline, entry.homebrew ? 'User Content' : entry.summary].filter(Boolean).join(' - ') : 'Not in the SRD reference' }),
+      entry?.homebrew ? h('span.tag', { text: 'User Content' }) : null,
       prohibited ? h('span.tag.is-blocked', { text: 'prohibited school' }) : null,
       actions),
-    entry ? detailToggle(kind, entry.name) : null);
+    entry?.homebrew ? homebrewDetail(name) : entry ? detailToggle(kind, entry.name) : null);
+}
+
+/** "Details" for a spell or power from User Content: its own stat block, in words. */
+function homebrewDetail(name) {
+  const sp = homebrew.entries.get(name);
+  if (!sp) return null;
+  const power = sp.mode === 'power';
+  const lines = [
+    [power ? 'Discipline' : 'School', [sp.school, sp.subschool ? `(${sp.subschool})` : '', sp.descriptors ? `[${sp.descriptors}]` : ''].filter(Boolean).join(' ')],
+    ['Level', sp.level], [power ? 'Display' : 'Components', sp.components], [power ? 'Manifesting Time' : 'Casting Time', sp.castingTime],
+    ['Range', sp.range], ['Target', sp.target], ['Effect', sp.effect], ['Area', sp.area], ['Duration', sp.duration],
+    ['Saving Throw', sp.savingThrow], [power ? 'Power Resistance' : 'Spell Resistance', sp.resistance], ['Power Points', power ? sp.powerPoints : ''],
+  ].filter(([, v]) => v);
+  return h('details.magic-details',
+    h('summary', { text: 'Details' }),
+    h('div.magic-detail',
+      h('dl.catalog-facts', lines.flatMap(([label, value]) => [h('dt', { text: label }), h('dd', { text: value })])),
+      sp.description ? h('p.special-text', { text: sp.description }) : null,
+      sp.augment ? h('p.special-text', h('strong', { text: 'Augment: ' }), sp.augment) : null));
 }
 
 /** "Details" that open the reference entry in place. */

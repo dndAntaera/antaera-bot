@@ -24,7 +24,7 @@
 // that quietly breaks the moment it leaves the browser it was made in.
 
 import { BODY_SLOTS, slotKeyFor } from './inventory.js';
-import { withSpecials, effectsOfSpecials } from './specials.js';
+import { withSpecials, effectsOfSpecials, specialSource } from './specials.js';
 import { creatureKind } from './creatures.js';
 
 /** The bonus types an effect may claim, for the editor's dropdown. */
@@ -110,8 +110,9 @@ export const CONTENT_TYPES = {
       { key: 'prestige', label: 'Prestige class', type: 'bool' },
       { key: 'classSkills', label: 'Class skills', type: 'list', wide: true,
         hint: 'Comma separated. A bare "Knowledge" makes every Knowledge a class skill.' },
-      { key: 'casting.ability', label: 'Casting ability', type: 'select', options: [['', 'None'], ...ABILITIES],
-        hint: 'Set this and the sheet works out spell save DCs and bonus slots.' },
+      { key: 'spellcaster', label: 'Spellcaster', type: 'bool', hint: 'Casts spells, from a list built below.' },
+      { key: 'manifester', label: 'Manifester', type: 'bool', hint: 'Manifests psionic powers, from a list built below.' },
+      { key: 'magic', label: 'Spells and powers', type: 'magic' },
       { key: 'specials', label: 'Class features', type: 'specials', add: 'Add a class feature', level: true,
         hint: 'Each feature arrives at the class level it is gained at. Give one bonuses and they count from that level; give it uses and the sheet tracks them.' },
     ],
@@ -230,6 +231,7 @@ export function blankEntry(kind) {
   if (!type) throw new Error(`no such content kind: ${kind}`);
   const entry = { kind, name: '', custom: true };
   for (const field of type.fields) {
+    if (field.type === 'magic') continue;
     const value = field.type === 'bool' ? false
       : field.type === 'int' ? 0
         : field.type === 'list' || field.type === 'specials' ? []
@@ -275,7 +277,7 @@ export function contentIndex(rules, character) {
     .map((e) => ({ ...withSpecials(e, kind), custom: true }));
 
   index.classByName = new Map(rules.classes.classes.map((c) => [c.name, c]));
-  for (const c of own('classes', 'class')) index.classByName.set(c.name, c);
+  for (const c of own('classes', 'class')) index.classByName.set(c.name, casterShape(c));
   // Sheets made before the library existed kept their classes here.
   for (const c of character?.customClasses || []) if (c.name) index.classByName.set(c.name, { ...withSpecials(c, 'class'), custom: true });
 
@@ -302,6 +304,92 @@ export function contentIndex(rules, character) {
   index.spellByName = new Map(own('spells', 'spell').map((sp) => [sp.name, sp]));
 
   return index;
+}
+
+/** The ways a homebrew spellcaster prepares: from its list, spontaneously, or from a spellbook. */
+export const CASTING_STYLES = [['prepared', 'Prepares from its list'], ['spontaneous', 'Casts spontaneously'], ['spellbook', 'Prepares from a spellbook']];
+
+/**
+ * A homebrew class as the casting engine reads one (engine/magic.js). A
+ * Spellcaster casts with its ability, arcane or divine, preparing or not, with
+ * the spells per day and known of the SRD class it names, from the spell list
+ * it was given; a Manifester likewise, with power points and powers known. A
+ * class written before the checkboxes, with only a casting ability, keeps
+ * what it had.
+ */
+export function casterShape(c) {
+  if (!c) return c;
+  if (c.manifester) {
+    return { ...c, casting: null, manifesting: { ...(c.manifesting || {}), ability: c.manifesting?.ability || 'int' } };
+  }
+  if (c.spellcaster === false) return { ...c, casting: null, manifesting: null };
+  if (c.spellcaster || c.casting?.ability) {
+    const style = c.casting?.style || 'prepared';
+    return {
+      ...c,
+      manifesting: null,
+      casting: {
+        ...(c.casting || {}),
+        ability: c.casting?.ability || 'int',
+        type: c.casting?.type === 'divine' ? 'divine' : 'arcane',
+        spontaneous: style === 'spontaneous',
+        spellbook: style === 'spellbook',
+      },
+    };
+  }
+  return c;
+}
+
+/**
+ * Feats an ability grants - a class's bonus feat at the level it comes, a
+ * race's Alertness, a worn item's Improved Initiative - each held as a feat
+ * that fills no slot, with where it came from.
+ *
+ * @param character  the character as derive sees it (items marked equipped)
+ * @param classes    each class taken, with its levels and its definition
+ * @returns [{ name, choice, level, source }]
+ */
+export function featsFromSpecials(character, index, classes = []) {
+  const out = [];
+  const take = (holderName, specials, level = 1) => {
+    for (const special of specials || []) {
+      if (!special?.feat) continue;
+      out.push({ name: special.feat, choice: special.featChoice || null, level, source: specialSource(holderName, special) });
+    }
+  };
+  const rows = (list, lookup) => (list || []).filter((row) => row?.name || (row?.specials || []).length)
+    .map((row) => ({ name: row.name, specials: [...(lookup?.get(row.name)?.specials || []), ...(row.specials || [])] }));
+
+  const typed = character.race || {};
+  if (typed.name) take(typed.name, [...(index.raceByName.get(typed.name)?.specials || []), ...(typed.specials || [])]);
+  for (const t of rows(character.templates, index.templateByName)) take(t.name, t.specials);
+
+  // A class's feature arrives at the character level its class level was reached.
+  const reached = (name, classLevel) => {
+    let count = 0;
+    const levels = character.levels || [];
+    for (let i = 0; i < levels.length; i++) {
+      if (levels[i].a === name || levels[i].b === name) count += 1;
+      if (count >= classLevel) return i + 1;
+    }
+    return levels.length || 1;
+  };
+  const seen = new Set();
+  for (const c of classes) {
+    if (!c?.def || seen.has(c.name)) continue;
+    seen.add(c.name);
+    for (const special of c.def.specials || []) {
+      const at = Math.max(1, Number(special?.level) || 1);
+      if (!special?.feat || at > c.levels) continue;
+      out.push({ name: special.feat, choice: special.featChoice || null, level: reached(c.name, at), source: specialSource(c.name, special) });
+    }
+  }
+
+  for (const f of rows(character.feats, index.featByName)) take(f.name, f.specials);
+  for (const f of rows(character.features, index.featureByName)) take(f.name, f.specials);
+  for (const item of rows((character.wealth?.items || []).filter((i) => i?.equipped !== false), index.itemByName)) take(item.name, item.specials);
+  for (const a of (character.activeSpells || []).filter((x) => x?.name && x.on !== false)) take(a.name, index.spellByName?.get(a.name)?.specials);
+  return out;
 }
 
 /**
