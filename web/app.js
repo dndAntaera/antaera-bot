@@ -24,6 +24,7 @@ import {
   identityPanel, levelsPanel, abilitiesPanel, combatPanel, skillsPanel,
   houserulesPanel, textPanel, trackersPanel, hitPointsPanel, startingWealthPanel,
   effectsPanel, contentPanel, paintEffects, paintConditions, paintContent, paintAcTable,
+  typedRaceFields,
 } from './ui/sheet.js';
 import { referenceNow, lookUp } from './reference.js';
 import { SHEET_PAGES, pageFor, pageForNotice, sheetTabs } from './ui/sheet-pages.js';
@@ -1102,6 +1103,7 @@ function wizardWays() {
       await reopen();
     },
     variants: () => variantsStrip(),
+    typedRace: () => typedRaceFields(app),
     raceChoices: () => byName([
       // The core races, then the variant rules' (aquatic, arctic, desert, jungle, elemental), unless withheld.
       app.rules.races?.races || [],
@@ -1488,6 +1490,8 @@ app.recompute = () => {
    ========================================================================= */
 
 let saveTimer = null;
+// Each save is numbered: only the newest one's results are taken back.
+let saveGeneration = 0;
 
 function scheduleSave() {
   if (!app.status) return;
@@ -1505,8 +1509,15 @@ async function flush() {
   if (app.derived) app.character.rolls = rollSheet(app.derived, app.character);
   // The file is what is saved; the sheet in hand stays whole.
   const file = toFile(app.character);
+  const generation = ++saveGeneration;
   const result = await saveEverywhere(file);
-  app.character.meta = { ...app.character.meta, ...file.meta };
+  // Only what the save stamped comes back - when it was saved, and the
+  // server's history - and only from the newest save of this same character.
+  // The rest of the file is a snapshot from before the wait, and may be out of
+  // date: a Finish or a Skip made while it was on its way, which copying it
+  // back would quietly undo, or another character opened meanwhile.
+  if (generation !== saveGeneration || app.character?.id !== file.id) return;
+  app.character.meta = { ...app.character.meta, updated: file.meta?.updated, created: app.character.meta?.created || file.meta?.created };
   if (Array.isArray(file.history)) app.character.history = file.history;
   if (!app.status) return;
   // Signed out is a normal way to use the app, not a failure: "saved" either

@@ -480,6 +480,8 @@ export function abilitiesListPanel(app, ways = {}) {
   const specials = d.specials || [];
   const groups = new Map();
   for (const sp of specials) {
+    // A spell or power in effect is shown in its own block, below, with its bonuses.
+    if (sp.kind === 'spell') continue;
     const heading = sp.kind === 'class' ? `${sp.holder} features` : sp.group;
     if (!groups.has(heading)) groups.set(heading, []);
     groups.get(heading).push(sp);
@@ -544,6 +546,10 @@ function activeSpellsBlock(app, changed) {
   const shelf = app.shelfEntries?.('spell') || [];
   const known = new Map([...shelf, ...carried].filter((sp) => sp?.name).map((sp) => [sp.name, sp]));
   const listed = new Set(c.activeSpells.map((a) => a?.name));
+  // What each one in effect does, in words: its bonuses, and any feat it grants.
+  const does = (name) => (app.derived.specials || []).filter((sp) => sp.kind === 'spell' && sp.holder === name)
+    .flatMap((sp) => [sp.effects.length ? bonusesInWords(sp.effects) : '', ...(sp.feats || []).map((f) => `grants ${featLabel(f.name, f.choice)}`)])
+    .filter(Boolean).join('; ');
   const options = [...known.values()]
     .filter((sp) => !listed.has(sp.name))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -555,6 +561,7 @@ function activeSpellsBlock(app, changed) {
       ? h('ul.active-spell-list', c.activeSpells.map((a, i) => h('li.active-spell',
         checkbox(`activeSpells.${i}.on`, a.on !== false, a.name, { title: 'While it lasts: switched on, its effects count.' }),
         known.get(a.name)?.duration ? h('span.hint', { text: known.get(a.name).duration }) : null,
+        a.on !== false && does(a.name) ? h('span.hint.special-effects', { text: does(a.name) }) : null,
         button('x', () => { c.activeSpells.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Take it off the list' }))))
       : h('p.hint', { text: known.size ? 'None in effect.' : 'A spell or power written in User Content with effects can be switched on here while it lasts.' }),
     known.size

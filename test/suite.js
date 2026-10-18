@@ -20,7 +20,7 @@ import {
   itemFromReference, inventoryTotals, carryingCapacity, attackFor, migrateInventory, slotChoices, usableContent, buyItem, removeItem,
   lockedParts, lockChanges, restoreLocked, isLockedPath, lockedSummary,
   parseDice, rollDice, rollSheet, findRoll, rollFor, rollChoices,
-  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS, listLevels,
+  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS, listLevels, GRANTS_FEAT,
 } from '../web/engine/index.js';
 
 export function buildSuite(data) {
@@ -1629,6 +1629,111 @@ export function buildSuite(data) {
     const rules = { ...srd, campaign: { id: 'c1', allowHomebrew: false, content: [] } };
     const usable = usableContent(c, rules);
     t.eq([usable.content.items.map((i) => i.name), usable.blocked.map((b) => b.name)], [['Grandfather\u2019s axe'], ['Homebrew ring']]);
+  });
+
+  /* === holes: the recent features, pushed at their edges ================ */
+
+  test('holes: what an ability carries survives being saved and opened again', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    c.meta = { ...c.meta, custom: true };
+    c.race = { ...c.race, name: 'Skyfolk', type: 'Fey', subtype: 'Air', specials: [{ name: 'Glide', type: 'su', uses: 2, usesPer: 'encounter', effects: [{ target: 'skill.Jump', type: 'racial', value: 4 }] }] };
+    c.features = [{ name: 'Boon', specials: [{ name: '', text: 'Lucky.', uses: 1, usesPer: 'week' }] }];
+    c.activeSpells = [{ name: 'Shield of Thorns', on: false }];
+    c.trackers = { 'special:race:Skyfolk:Glide': 1 };
+    const back = fillCharacter(packCharacter(c, srd), srd);
+    t.eq([back.meta.custom, back.race.type, back.race.specials[0].uses, back.features[0].specials[0].usesPer, back.activeSpells[0].on, back.trackers['special:race:Skyfolk:Glide']],
+      [true, 'Fey', 2, 'week', false, 1]);
+    t.ok(packCharacter(c, srd).modules.includes('effects'), 'spells in effect are a module of the file');
+    const d = derive(back, srd);
+    t.eq([d.race.kindLabel, d.specials.find((x) => x.name === 'Glide').remaining], ['Fey (Air)', 1], 'and still count');
+  });
+
+  test('holes: an item’s abilities - bonuses, uses, a feat - only while it is worn', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    c.abilities.base = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+    c.skills = [{ name: 'Listen', subtype: '', ranks: 0, misc: 0 }];
+    embed(c, 'item', { name: 'Owl Brooch', slot: 'Brooch', specials: [{ name: 'Night ears', uses: 3, usesPer: 'day',
+      effects: [{ target: 'save.will', type: 'resistance', value: 1 }, { target: GRANTS_FEAT, feat: 'Alertness' }] }] });
+    c.wealth.items = [{ id: 'b1', name: 'Owl Brooch', qty: 1, category: 'Wondrous item', slot: 'Brooch' }];
+    c.equipment = { ...(c.equipment || {}), slots: { neck: 'b1' } };
+    const worn = derive(c, srd);
+    t.eq([worn.saves.will.bonuses, worn.featPlan.granted.some((g) => g.name === 'Alertness'), worn.trackers.some((x) => x.name === 'Night ears')], [1, true, true]);
+    t.eq(worn.skills.lines.find((l) => l.name === 'Listen').total, 2, 'the granted Alertness counts');
+    c.equipment.slots.neck = null;
+    c.wealth.items[0].equipped = false;
+    const packed = derive(c, srd);
+    t.eq([packed.saves.will.bonuses, packed.featPlan.granted.some((g) => g.name === 'Alertness'), packed.trackers.some((x) => x.name === 'Night ears'), packed.specials.some((x) => x.kind === 'item')], [0, false, false, false]);
+    t.eq(slotChoices(c, 'neck').map((x) => x.item.name), ['Owl Brooch'], 'its typed slot ("Brooch") finds the neck');
+  });
+
+  test('holes: a template’s traits count and are listed; a typed race’s traits too', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    c.race = { ...c.race, name: 'Riverfolk', speed: 30, specials: [{ name: 'Swimmer', type: 'ex', effects: [{ target: 'skill.Swim', type: 'racial', value: 8 }] }] };
+    embed(c, 'template', { name: 'Fiendish', type: '', subtype: 'Extraplanar', specials: [{ name: 'Smite good', type: 'su', uses: 1, usesPer: 'day', save: 'none' }, { name: 'Fiend hide', effects: [{ target: 'ac', type: 'natural', value: 1 }] }] });
+    c.templates = [{ name: 'Fiendish' }];
+    c.skills = [{ name: 'Swim', subtype: '', ranks: 0, misc: 0 }];
+    const before = derive({ ...c, templates: [] }, srd);
+    const d = derive(c, srd);
+    t.eq(d.ac.total - before.ac.total, 1, 'the template’s natural armor');
+    t.eq(d.skills.lines.find((l) => l.name === 'Swim').total - d.abilities.str.mod, 8, 'the typed race’s trait');
+    t.eq(d.specials.filter((x) => x.kind === 'template').map((x) => [x.name, x.mark, x.dc]), [['Smite good', 'Su', null], ['Fiend hide', null, null]], 'No save means no DC');
+    t.eq(d.race.subtypes, ['Extraplanar'], 'a typed race of no stated type keeps the template’s subtype');
+  });
+
+  test('holes: resets give back only what they should', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    embed(c, 'feature', { name: 'Gifts', specials: [
+      { name: 'Each round', uses: 1, usesPer: 'round' }, { name: 'Each hour', uses: 1, usesPer: 'hour' },
+      { name: 'Each week', uses: 1, usesPer: 'week' }, { name: 'Each month', uses: 1, usesPer: 'month' },
+    ] });
+    c.features = [{ name: 'Gifts' }];
+    const keys = Object.fromEntries(derive(c, srd).trackers.filter((x) => x.special).map((x) => [x.name, x.key]));
+    c.trackers = Object.fromEntries(Object.values(keys).map((k) => [k, 1]));
+    const trackers = derive(c, srd).trackers;
+    const after = (per) => Object.fromEntries(Object.entries(keys).map(([name, k]) => [name, restedTrackers(c, trackers, per).trackers[k]]));
+    t.eq(after('encounter'), { 'Each round': 0, 'Each hour': 1, 'Each week': 1, 'Each month': 1 });
+    t.eq(after('day'), { 'Each round': 0, 'Each hour': 0, 'Each week': 1, 'Each month': 1 });
+    t.eq(after('week'), { 'Each round': 0, 'Each hour': 0, 'Each week': 0, 'Each month': 1 }, 'a month’s use comes back only by its own Reset');
+  });
+
+  test('holes: a spellcaster class prepares from a spellbook, divine casters by their ability', (t) => {
+    const c = characterWith(srd, repeat(['Runescribe'], 3));
+    c.abilities.base = { str: 10, dex: 10, con: 10, int: 16, wis: 10, cha: 10 };
+    embed(c, 'class', { name: 'Runescribe', hd: 6, bab: 'poor', saves: { fort: 'poor', ref: 'poor', will: 'good' }, skillPoints: 2, classSkills: [],
+      spellcaster: true, casting: { ability: 'int', type: 'arcane', style: 'spellbook', progression: 'Wizard', spellList: { 1: ['Sleep'] } } });
+    const m = derive(c, srd).magic.classes[0];
+    const first = m.levels.find((l) => l.level === 1);
+    t.eq([m.spellbook, m.spontaneous, m.type, first.perDay, first.saveDC], [true, false, 'arcane', 3, 14], 'a 3rd-level wizard’s 2, plus 1 for Int 16; DC 10 + 1 + 3');
+    c.content.classes[0].spellcaster = false;
+    t.eq(derive(c, srd).magic.classes.length, 0, 'unticked, it casts nothing');
+  });
+
+  test('holes: in a campaign that allows no homebrew, a player’s spell does nothing', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    embed(c, 'spell', { name: 'Ironskin', specials: [{ name: '', effects: [{ target: 'ac', type: 'natural', value: 2 }] }] });
+    c.activeSpells = [{ name: 'Ironskin', on: true }];
+    const free = derive(c, srd).ac.total;
+    const rules = { ...srd, campaign: { id: 'c1', allowHomebrew: false, content: [] } };
+    const usable = usableContent(c, rules);
+    t.eq(usable.blocked.map((b) => b.name), ['Ironskin']);
+    t.eq(derive(c, srd).ac.total - derive({ ...c, content: usable.content }, srd).ac.total, 2, 'blocked, it is not counted');
+    t.ok(free > 0);
+  });
+
+  test('holes: a custom character’s own User Content is never flagged, and Discord rolls see ability bonuses', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    c.meta = { ...c.meta, custom: true };
+    embed(c, 'race', { name: 'Stoneborn', specials: [{ name: 'Keen', effects: [{ target: 'skill.Spot', type: 'racial', value: 2 }] }] });
+    embed(c, 'feat', { name: 'Iron Will Plus', specials: [] });
+    embed(c, 'feature', { name: 'Boon', specials: [] });
+    c.race.name = 'Stoneborn';
+    c.feats = [{ name: 'Iron Will Plus', slot: 'other' }];
+    c.features = [{ name: 'Boon' }];
+    c.skills = [{ name: 'Spot', subtype: '', ranks: 0, misc: 0 }];
+    const d = derive(c, srd);
+    t.ok(!d.notices.some((n) => /custom character/.test(n.text)), 'all of it exists, in User Content');
+    const spot = rollSheet(d, c).skills.find((s) => s.name === 'Spot');
+    t.eq(spot.total, d.skills.lines.find((l) => l.name === 'Spot').total, '/roll reads the same total, the trait included');
   });
 
   return cases;

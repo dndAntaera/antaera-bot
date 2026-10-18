@@ -412,7 +412,7 @@ function raceStep(app, ways) {
             total('Favored class', 'race.favoredClass'),
             h('p.hint.race-traits', { text: app.derived.race.traits }))
           : h('div.race-typed',
-            h('p.hint', { text: `${chosen} is not a race the sheet knows. Its type, size, speed, adjustments and traits can be entered on the full sheet, or written up under User Content.` }),
+            h('p.hint', { text: `${chosen} is not a race the sheet knows: enter what it is below, or write it up under User Content to use it again.` }),
             ways.typedRace?.()))
         : h('p.hint', { text: 'No race chosen yet.' }))));
 }

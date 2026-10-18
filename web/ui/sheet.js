@@ -43,7 +43,6 @@ export function identityPanel(app) {
   const c = app.character;
   const d = app.derived;
   const rs = app.rules.ruleset;
-  const sizes = app.rules.core.sizes.map((s) => s.name);
   const known = d.race.known;
 
   // What kind of creature: "Humanoid (Dwarf)", or what its templates make it.
@@ -57,15 +56,7 @@ export function identityPanel(app) {
       total('Level adj.', 'race.la', { format: 'signed' }),
       total('Favored class', 'race.favoredClass'),
       h('p.hint.race-traits', { text: d.race.traits }))
-    : row(
-      labelled('Type', listChoice('race.type', c.race?.type, CREATURE_TYPES, 'Choose a type')),
-      labelled('Subtype', listChoice('race.subtype', c.race?.subtype, CREATURE_SUBTYPES, 'None')),
-      labelled('Size', select('race.size', c.race?.size, sizes, { className: 'narrow' })),
-      labelled('Speed', field('race.speed', c.race?.speed, { type: 'int', width: '4rem' })),
-      labelled('Racial HD', field('race.racialHD', c.race?.racialHD, { type: 'int', width: '4rem', title: 'Hit dice from the race itself, before any class levels.' })),
-      labelled('Level adj.', field('race.la', c.race?.la, { type: 'int', width: '4rem' })),
-      labelled('Extra skill points', field('race.skillPointsPerLevel', c.race?.skillPointsPerLevel, { type: 'int', width: '4rem', title: 'Per level, before the first-level multiplier.' })),
-      h('span.hint', { text: 'A race the sheet does not know. Enter its numbers here, or write it up under User Content so its effects count too.' }));
+    : null;
 
   return panel('identity', 'The character',
     row(
@@ -78,9 +69,39 @@ export function identityPanel(app) {
       labelled('Race', nameField(app, 'race.name', c.race?.name, 'race', { placeholder: 'Choose or type a race', className: 'grow' })),
       d.levelAdjustment.capped ? labelled('Level adj. allowed', out('levelAdjustment.allowed', { format: 'signed' })) : null,
     ),
-    // A custom character's race is one that exists; there is nothing to type in for it.
-    choosesOnly(app) && !known ? null : raceFacts,
-    known || choosesOnly(app) ? null : h('details.aside', { open: (c.race?.specials || []).length > 0 },
+    raceFacts,
+    // A race the sheet does not know is entered here - except a custom
+    // character's, which is one that exists, chosen from the list.
+    known || choosesOnly(app) || !c.race?.name ? null : typedRaceFields(app),
+    templatesBlock(app),
+    d.modules.backgrounds ? backgroundRow(app) : null,
+    rs.id === 'antaera'
+      ? row(labelled('Forum thread', field('meta.forumThread', c.meta?.forumThread, { placeholder: 'Link to the #scars-characters post', className: 'grow' }), { wide: true }))
+      : null);
+}
+
+/**
+ * What a race the sheet does not know is, entered by hand: its type and
+ * subtype, size, speed, hit dice, level adjustment, ability adjustments and
+ * traits. On the sheet and in the creator's race step alike; once the
+ * character is finished, like every held choice, only in the creator - so the
+ * whole of it is marked held, buttons and all.
+ */
+export function typedRaceFields(app) {
+  const c = app.character;
+  const d = app.derived;
+  const sizes = app.rules.core.sizes.map((s) => s.name);
+  return h('div.typed-race', { dataset: { lock: 'race' } },
+    row(
+      labelled('Type', listChoice('race.type', c.race?.type, CREATURE_TYPES, 'Choose a type')),
+      labelled('Subtype', listChoice('race.subtype', c.race?.subtype, CREATURE_SUBTYPES, 'None')),
+      labelled('Size', select('race.size', c.race?.size, sizes, { className: 'narrow' })),
+      labelled('Speed', field('race.speed', c.race?.speed, { type: 'int', width: '4rem' })),
+      labelled('Racial HD', field('race.racialHD', c.race?.racialHD, { type: 'int', width: '4rem', title: 'Hit dice from the race itself, before any class levels.' })),
+      labelled('Level adj.', field('race.la', c.race?.la, { type: 'int', width: '4rem' })),
+      labelled('Extra skill points', field('race.skillPointsPerLevel', c.race?.skillPointsPerLevel, { type: 'int', width: '4rem', title: 'Per level, before the first-level multiplier.' })),
+      h('span.hint', { text: 'A race the sheet does not know. Enter what it is here, or write it up under User Content to use it again.' })),
+    h('details.aside', { open: (c.race?.specials || []).length > 0 },
       h('summary', 'Ability adjustments and traits for this race'),
       row(...ABILITIES.map((key) => labelled(key.toUpperCase(),
         field(`race.abilityAdjust.${key}`, c.race?.abilityAdjust?.[key], { type: 'int', width: '3.5rem' })))),
@@ -95,12 +116,7 @@ export function identityPanel(app) {
         addLabel: 'Add a trait',
         emptyText: 'None yet. Each trait shows under Special abilities; give one bonuses and they count, give it uses and they are tracked.',
         onShapeChange: () => { app.recompute(); if (app.panels.abilitiesList) app.rebuildPanel('abilitiesList'); if (app.panels.trackers) app.rebuildPanel('trackers'); },
-      })),
-    templatesBlock(app),
-    d.modules.backgrounds ? backgroundRow(app) : null,
-    rs.id === 'antaera'
-      ? row(labelled('Forum thread', field('meta.forumThread', c.meta?.forumThread, { placeholder: 'Link to the #scars-characters post', className: 'grow' }), { wide: true }))
-      : null);
+      })));
 }
 
 /** A bound dropdown of a fixed list, keeping a value the list does not hold rather than losing it. */
