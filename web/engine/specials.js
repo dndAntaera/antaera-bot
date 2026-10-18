@@ -19,9 +19,9 @@
 //   dcAbility   the ability a supernatural ability's DC is built on
 //   effects     what it changes on the sheet: effects, as engine/effects.js has
 //               them, a condition making one situational
-//   feat        a feat it grants, from the SRD or User Content - a class's
-//               bonus feat, a race's Alertness - held without filling a slot;
-//               featChoice is what the feat applies to, when it asks
+//               - or, among them, a feat it grants from the SRD or User
+//               Content (a class's bonus feat, a race's Alertness), held
+//               without filling a slot: { target: 'feat.grant', feat, featChoice }
 //
 // The DCs are the SRD's, from Special Abilities:
 //
@@ -32,6 +32,7 @@
 // Pure: no DOM, no fetch.
 
 import { num, floorDiv, signed } from './util.js';
+import { GRANTS_FEAT, isNumeric } from './effects.js';
 
 export const SPECIAL_TYPES = {
   ex: { label: 'Extraordinary', mark: 'Ex' },
@@ -96,7 +97,7 @@ export function effectsOfSpecials(holder, level = Infinity) {
   const out = [];
   for (const special of activeSpecials(holder, level)) {
     for (const effect of special.effects || []) {
-      if (effect && effect.target) out.push({ ...effect, source: effect.source || specialSource(holder?.name, special) });
+      if (isNumeric(effect)) out.push({ ...effect, source: effect.source || specialSource(holder?.name, special) });
     }
   }
   return out;
@@ -169,12 +170,24 @@ export function characterSpecials(groups, ctx) {
           used,
           remaining: uses - used,
           dc: specialDC(special, ctx),
-          effects: (special.effects || []).filter((e) => e && e.target),
-          feat: special.feat ? { name: special.feat, choice: special.featChoice || null } : null,
+          effects: (special.effects || []).filter(isNumeric),
+          feats: featsGranted(special),
         });
       });
     }
   }
+  return out;
+}
+
+/**
+ * The feats a special grants, as rows among its bonuses - and, from an entry
+ * written before they were, its own `feat` field.
+ */
+export function featsGranted(special) {
+  const out = (special?.effects || [])
+    .filter((e) => e?.target === GRANTS_FEAT && e.feat)
+    .map((e) => ({ name: e.feat, choice: e.featChoice || null }));
+  if (special?.feat) out.push({ name: special.feat, choice: special.featChoice || null });
   return out;
 }
 

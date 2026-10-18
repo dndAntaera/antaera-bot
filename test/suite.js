@@ -773,7 +773,7 @@ export function buildSuite(data) {
       const c = characterWith(srd, repeat(['Duelist of Steel'], levels));
       c.abilities.base = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
       embed(c, 'class', { name: 'Duelist of Steel', hd: 10, bab: 'good', saves: { fort: 'good', ref: 'good', will: 'poor' }, skillPoints: 4, classSkills: [],
-        specials: [{ name: 'Keen eye', level: 3, feat: 'Alertness' }] });
+        specials: [{ name: 'Keen eye', level: 3, effects: [{ target: 'feat.grant', feat: 'Alertness' }] }] });
       c.skills = [{ name: 'Spot', subtype: '', ranks: 0, misc: 0 }];
       return derive(c, srd);
     };
@@ -783,6 +783,8 @@ export function buildSuite(data) {
     const granted = three.featPlan.granted.find((g) => g.name === 'Alertness');
     t.eq([granted.level, granted.source], [3, 'Duelist of Steel: Keen eye']);
     t.eq(three.skills.lines.find((l) => l.name === 'Spot').total - two.skills.lines.find((l) => l.name === 'Spot').total, 2, 'Alertness does what it does');
+    t.ok(!three.notices.some((n) => /feat\.grant/.test(n.text)), 'a feat granted is no number, and no unknown target');
+    t.eq(three.specials.find((x) => x.name === 'Keen eye').feats, [{ name: 'Alertness', choice: null }]);
   });
 
   test('a Spellcaster or Manifester class casts by an SRD class\’s tables, from its own list', (t) => {

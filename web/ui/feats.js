@@ -404,7 +404,7 @@ function specialRow(app, s, ways) {
       s.kind !== 'race' && s.kind !== 'class' && s.holderSource ? h('span.hint', { text: s.holderSource }) : null),
     s.text ? h('p.special-text', { text: s.text }) : null,
     s.effects.length ? h('p.hint.special-effects', { text: bonusesInWords(s.effects) }) : null,
-    s.feat ? h('p.hint.special-feat-line', { text: `Grants the feat ${featLabel(s.feat.name, s.feat.choice)}.` }) : null,
+    s.feats?.length ? h('p.hint.special-feat-line', { text: `Grants ${s.feats.length === 1 ? 'the feat' : 'the feats'} ${s.feats.map((f) => featLabel(f.name, f.choice)).join(', ')}.` }) : null,
     uses);
 }
 

@@ -1508,6 +1508,11 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
   align-items: center;
 }
 .effect-row > * { min-width: 0; }
+/* What a row changes: one dropdown, and beside it the skill or the feat it names. */
+.effect-target-cell { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.effect-row.is-feat .effect-feat-choice { grid-column: 2 / 6; }
+.statblock-effects { display: flex; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-3); padding-top: var(--sp-2); border-top: var(--hair) solid var(--rule); }
+.statblock-effects > .hint { margin: 0; font-size: var(--text-tiny); }
 .effects-empty { margin: 0; }
 
 .effect-list-row { border-bottom: var(--hair) solid var(--rule); }
@@ -1665,7 +1670,6 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 .special-card:not([data-type="sla"]) .only-sla,
 .special-card:not([data-type="su"]) .only-su,
 .special-card:not([data-type="sla"]):not([data-type="su"]) .only-dc { display: none; }
-.special-feat { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; }
 
 /* A Spellcaster's or Manifester's list, level by level, and the row that adds to it. */
 .content-magic h3 { font: 600 var(--text-small)/1 var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); margin: var(--sp-3) 0 var(--sp-2); }
@@ -1678,7 +1682,6 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 .magic-list-adder { align-items: center; flex-wrap: wrap; }
 .magic-list-adder .field { width: auto; }
 .magic-list-adder .field.grow { flex: 1 1 14rem; }
-.special-feat > .cell:last-child { flex: 1 1 12rem; }
 .special-bonuses > summary { font-size: var(--text-small); color: var(--ink-soft); cursor: pointer; }
 .special-bonuses[open] > summary { margin-bottom: var(--sp-2); }
 .special-bonuses > .hint { margin: 0 0 var(--sp-2); font-size: var(--text-tiny); }
@@ -1851,6 +1854,7 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
   .effect-head { display: none; }
   .effect-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 3.2rem; }
   .effect-row .effect-condition { grid-column: 1 / 3; }
+  .effect-row.is-feat .effect-feat-choice { grid-column: 1 / 3; }
   .effect-row .check { white-space: normal; min-width: 0; }
   .variants { padding: var(--pad-y-sm) var(--pad-x-sm); }
 

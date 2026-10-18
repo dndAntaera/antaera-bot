@@ -24,7 +24,7 @@
 // that quietly breaks the moment it leaves the browser it was made in.
 
 import { BODY_SLOTS, slotKeyFor } from './inventory.js';
-import { withSpecials, effectsOfSpecials, specialSource } from './specials.js';
+import { withSpecials, effectsOfSpecials, specialSource, featsGranted } from './specials.js';
 import { creatureKind } from './creatures.js';
 
 /** The bonus types an effect may claim, for the editor's dropdown. */
@@ -217,8 +217,8 @@ export const CONTENT_TYPES = {
       { key: 'focus', label: 'Focus', type: 'text', only: 'spell', wide: true },
       { key: 'xpCost', label: 'XP Cost', type: 'text', wide: true },
       { key: 'augment', label: 'Augment', type: 'textarea', only: 'power', wide: true },
-      { key: 'specials', label: 'Effects', type: 'specials', add: 'Add an effect',
-        hint: 'What it does to whoever it is on: a bonus while it lasts, an ability it grants. On a sheet, switch it on under Active spells and powers and these count.' },
+      { key: 'specials', label: 'Effects on the target', type: 'specials', add: 'Add a bonus',
+        hint: 'The bonuses it gives whoever it is on, while it lasts - or a feat it grants. On their sheet, switch it on under Spells and powers in effect and these count.' },
     ],
   },
 };
@@ -353,8 +353,7 @@ export function featsFromSpecials(character, index, classes = []) {
   const out = [];
   const take = (holderName, specials, level = 1) => {
     for (const special of specials || []) {
-      if (!special?.feat) continue;
-      out.push({ name: special.feat, choice: special.featChoice || null, level, source: specialSource(holderName, special) });
+      for (const feat of featsGranted(special)) out.push({ ...feat, level, source: specialSource(holderName, special) });
     }
   };
   const rows = (list, lookup) => (list || []).filter((row) => row?.name || (row?.specials || []).length)
@@ -380,8 +379,8 @@ export function featsFromSpecials(character, index, classes = []) {
     seen.add(c.name);
     for (const special of c.def.specials || []) {
       const at = Math.max(1, Number(special?.level) || 1);
-      if (!special?.feat || at > c.levels) continue;
-      out.push({ name: special.feat, choice: special.featChoice || null, level: reached(c.name, at), source: specialSource(c.name, special) });
+      if (at > c.levels) continue;
+      for (const feat of featsGranted(special)) out.push({ ...feat, level: reached(c.name, at), source: specialSource(c.name, special) });
     }
   }
 

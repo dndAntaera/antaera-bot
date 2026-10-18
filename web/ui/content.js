@@ -11,6 +11,7 @@ import {
   h, field, select, checkbox, textarea, button, refill, bindForm,
 } from './dom.js';
 import { specialsEditor } from './specials-editor.js';
+import { effectsEditor } from './effects-editor.js';
 import {
   CONTENT_TYPES, CONTENT_KINDS, blankEntry, SPELL_SCHOOLS, SPELL_SUBSCHOOLS, DISCIPLINES, SUBDISCIPLINES, CASTING_STYLES,
 } from '../engine/library.js';
@@ -147,6 +148,10 @@ function migrate(kind, entry) {
   const out = withSpecials(entry, kind);
   if (kind === 'item' && out.slot) return { ...out, slot: slotKeyFor(out.slot) };
   if (kind === 'class' && out.spellcaster === undefined && out.casting?.ability) return { ...out, spellcaster: true };
+  // A spell or power's effect on whoever it is on is one list of bonuses, in its card.
+  if (kind === 'spell' && (out.specials || []).length > 1) {
+    return { ...out, specials: [{ name: '', type: '', text: '', effects: out.specials.flatMap((sp) => sp?.effects || []) }] };
+  }
   return out;
 }
 
@@ -191,7 +196,7 @@ function editor(app, store, kind, index, stored, go) {
   const magic = type.fields.some((f) => f.type === 'magic') ? magicSection(app, store, entry, () => persist()) : null;
 
   const body = type.layout === 'statblock'
-    ? statblock(entry, type, () => persist(), featNames)
+    ? statblock(entry, type, () => persist(), featNames, skillNames)
     : [
       h('div.content-fields', type.fields.filter((f) => f.type !== 'specials' && f.type !== 'magic').map((f) => fieldFor(f, entry, lists))),
       magic?.host,
@@ -398,7 +403,7 @@ function fieldFor(f, entry, lists) {
  * reads the same with the psionic words: Discipline, Display, Manifesting
  * Time, Power Resistance, Power Points, Augment.
  */
-function statblock(entry, type, onShapeChange, featNames) {
+function statblock(entry, type, onShapeChange, featNames, skillNames) {
   const host = h('div.statblock-host');
   const field$ = (key) => type.fields.find((f) => f.key === key);
 
@@ -440,17 +445,20 @@ function statblock(entry, type, onShapeChange, featNames) {
         h('div.statblock-description',
           h('span.label', { text: label(description) }),
           textarea('description', entry.description, { rows: 8, placeholder: power ? 'What the power does.' : 'What the spell does.' })),
-        ['materials', 'focus', 'xpCost', 'augment'].map(line)),
-      h('section.content-specials',
-        h('h3', { text: effects.label }),
-        h('p.hint', { text: effects.hint }),
-        specialsEditor('specials', () => (entry.specials = entry.specials || []), {
-          skillNames: [],
-          featNames,
-          addLabel: effects.add,
-          emptyText: power ? 'None yet. A power that gives a bonus while it lasts says so here.' : 'None yet. A spell that gives a bonus while it lasts says so here.',
-          onShapeChange,
-        })));
+        ['materials', 'focus', 'xpCost', 'augment'].map(line),
+        h('div.statblock-effects',
+          h('span.statblock-label', { text: `${effects.label}:` }),
+          h('p.hint', { text: effects.hint }),
+          effectsEditor('specials.0.effects', () => {
+            entry.specials = entry.specials?.length ? entry.specials : [{ name: '', type: '', text: '', effects: [] }];
+            return (entry.specials[0].effects = entry.specials[0].effects || []);
+          }, {
+            skillNames: skillNames || [],
+            featNames,
+            addLabel: 'Add a bonus',
+            emptyText: power ? 'None. A power that gives a bonus while it lasts says so here.' : 'None. A spell that gives a bonus while it lasts says so here.',
+            onShapeChange,
+          }))));
   };
 
   draw();

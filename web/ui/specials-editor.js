@@ -5,9 +5,9 @@
 // effect on whoever it is on - and the sheet draws its own list from what they
 // say (engine/specials.js). A card holds an ability's name and whether it is
 // Extraordinary, Spell-Like or Supernatural; what it does, in words; how many
-// uses it has and when they come back; what its DC is built on; a feat it
-// grants, chosen from the SRD's and User Content's; and the bonuses it gives,
-// any of which may be situational.
+// uses it has and when they come back; what its DC is built on; and its
+// bonuses, any of which may be situational - or, among them, a feat it grants,
+// chosen from the SRD's and User Content's.
 //
 // Like the effects editor it binds through ordinary [data-field] paths, so the
 // form it sits in saves it like any other field. Only adding and removing an
@@ -16,13 +16,7 @@
 import { h, field, select, textarea, button, refill, labelled } from './dom.js';
 import { effectsEditor } from './effects-editor.js';
 import { SPECIAL_TYPES, USES_PER, SPECIAL_SAVES, blankSpecial } from '../engine/specials.js';
-
-/** A feat to grant, from a list; one granted before and since gone is kept, and said to be. */
-function featChoice(path, value, names) {
-  const options = [['', 'None'], ...names.map((n) => [n, n])];
-  if (value && !names.includes(value)) options.push([value, `${value} (not in the SRD or User Content)`]);
-  return select(path, value || '', options, { title: 'A feat this ability gives: held as a feat, filling no slot, and doing what the feat does.' });
-}
+import { GRANTS_FEAT } from '../engine/effects.js';
 
 const TYPE_OPTIONS = [['', '-'], ...Object.entries(SPECIAL_TYPES).map(([key, t]) => [key, `${t.label} (${t.mark})`])];
 const DC_ABILITIES = [['cha', 'Charisma'], ['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution'], ['int', 'Intelligence'], ['wis', 'Wisdom']];
@@ -49,6 +43,12 @@ export function specialsEditor(basePath, getList, opts = {}) {
 
   const card = (special, i) => {
     const path = `${basePath}.${i}`;
+    // A feat granted before grants were bonuses becomes one of its bonuses.
+    if (special.feat) {
+      special.effects = [...(special.effects || []), { target: GRANTS_FEAT, feat: special.feat, featChoice: special.featChoice || '' }];
+      delete special.feat;
+      delete special.featChoice;
+    }
     const kind = select(`${path}.type`, special.type || '', TYPE_OPTIONS, {
       className: 'special-type',
       title: 'Extraordinary, Spell-Like or Supernatural: marked (Ex), (SLA) or (Su) beside the name on the sheet. Leave it empty for no mark.',
@@ -56,9 +56,11 @@ export function specialsEditor(basePath, getList, opts = {}) {
     const fx = special.effects || [];
     const bonuses = h('details.special-bonuses', { open: fx.length > 0 },
       h('summary', fx.length ? `Bonuses (${fx.length})` : 'Bonuses'),
-      h('p.hint', { text: 'Skill, attack, save or other bonuses it gives. Write a condition under Only when and it is situational: noted on the sheet with where it came from, and left out of the total.' }),
+      h('p.hint', { text: `Skill, attack, save or other bonuses it gives${opts.featNames ? ', or a feat it grants' : ''}. Write a condition under Only when and a bonus is situational: noted on the sheet with where it came from, and left out of the total.` }),
       effectsEditor(`${path}.effects`, () => (getList()[i].effects = getList()[i].effects || []), {
         skillNames: opts.skillNames || [],
+        featNames: opts.featNames,
+        addLabel: 'Add a bonus',
         emptyText: 'None. As written, this is text and changes no numbers.',
         onShapeChange: () => {
           const n = (getList()[i].effects || []).length;
@@ -80,9 +82,6 @@ export function specialsEditor(basePath, getList, opts = {}) {
         h('div.only-sla', labelled('Spell level', field(`${path}.spellLevel`, special.spellLevel, { type: 'int', min: 0, max: 9, width: '4rem', title: 'The level of the spell it duplicates. Its DC is 10 + this + Charisma modifier.' }))),
         h('div.only-su', labelled('DC from', select(`${path}.dcAbility`, special.dcAbility || 'cha', DC_ABILITIES, { title: 'Its DC is 10 + half the hit dice + this ability’s modifier.' }))),
         h('div.only-dc', labelled('Save', select(`${path}.save`, special.save || '', SPECIAL_SAVES)))),
-      opts.featNames ? h('div.special-feat',
-        labelled('Grants a feat', featChoice(`${path}.feat`, special.feat, opts.featNames)),
-        labelled('Applies to', field(`${path}.featChoice`, special.featChoice, { placeholder: 'If the feat asks', title: 'What the feat is taken on, if it asks: a weapon for Weapon Focus, a skill for Skill Focus.' }))) : null,
       bonuses);
     // The DC's fields follow the type as it is chosen.
     kind.addEventListener('change', () => { el.dataset.type = kind.value; });

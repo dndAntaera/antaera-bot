@@ -78,6 +78,17 @@ export const TARGETS = {
 };
 
 /**
+ * A row among an ability's bonuses that grants a feat instead of changing a
+ * number: { target: GRANTS_FEAT, feat: 'Alertness', featChoice: '' }. The
+ * feat is held (engine/library.js, featsFromSpecials), and the row is never
+ * added to any total.
+ */
+export const GRANTS_FEAT = 'feat.grant';
+
+/** Whether an effect changes a number, rather than granting a feat. */
+export const isNumeric = (effect) => Boolean(effect?.target) && effect.target !== GRANTS_FEAT;
+
+/**
  * `skill.Hide` is legal for any skill, and `weapon.attack.longsword` for any
  * weapon, so targets are matched by prefix too.
  */
@@ -124,7 +135,7 @@ export function collectEffects(entries) {
     if (!holder) return;
     const label = holder.name || kind;
     for (const effect of holder.effects || []) {
-      if (!effect || !effect.target) continue;
+      if (!isNumeric(effect)) continue;
       all.push(clean(effect, `${label}`));
     }
   };
