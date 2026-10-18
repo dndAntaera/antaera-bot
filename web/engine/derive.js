@@ -529,18 +529,29 @@ function notices(character, d, rules) {
       }
     }
   }
-  // A custom character is built only of what exists: the SRD's, or the player's User Content.
-  if (isCustom(character)) {
-    const srdFeats = new Set((rules.featRules || []).map((f) => f.name.toLowerCase()));
-    const missing = [
-      character.race?.name && !d.race.known ? `the race ${character.race.name}` : null,
-      ...(character.templates || []).filter((t) => t?.name && !d.index.templateByName.has(t.name)).map((t) => `the template ${t.name}`),
-      ...(character.feats || []).filter((f) => f?.name && !srdFeats.has(f.name.toLowerCase()) && !d.index.featByName.has(f.name)).map((f) => `the feat ${f.name}`),
-      ...(character.features || []).filter((f) => f?.name && !d.index.featureByName.has(f.name)).map((f) => `the misc feature ${f.name}`),
-    ].filter(Boolean);
-    for (const what of missing) {
-      add('error', `A custom character takes only what is in the SRD or User Content, and ${what} is in neither. Choose another, or write it in User Content first.`, 'identity');
-    }
+  // Everything that changes the rules comes from the SRD or User Content. A
+  // sheet from before, with something of that kind typed onto it, still counts
+  // it - and says so, until it is written up in User Content (Copy into User
+  // Content, on the sheet) or another is chosen. A custom character is held to
+  // it as an error.
+  const srdFeats = new Set((rules.featRules || []).map((f) => f.name.toLowerCase()));
+  const typedOn = (row) => Boolean((row?.specials || []).length || (row?.effects || []).length || String(row?.effect || '').trim() || Number(row?.uses) > 0);
+  const missing = [
+    character.race?.name && !d.race.known ? ['identity', `The race ${character.race.name}`] : null,
+    ...(character.templates || []).filter((t) => t?.name && !d.index.templateByName.has(t.name)).map((t) => ['identity', `The template ${t.name}`]),
+    ...(character.feats || []).filter((f) => f?.name && !srdFeats.has(f.name.toLowerCase()) && !d.index.featByName.has(f.name)).map((f) => ['feats', `The feat ${f.name}`]),
+    ...(character.features || []).filter((f) => f?.name && !d.index.featureByName.has(f.name)).map((f) => ['feats', `The misc feature ${f.name}`]),
+  ].filter(Boolean);
+  for (const [field, what] of missing) {
+    add(isCustom(character) ? 'error' : 'warn', `${what} is in neither the SRD nor User Content. Write it up in User Content to choose it from there, or choose another.`, field);
+  }
+  const typed = [
+    ...(character.feats || []).filter((f) => f?.name && d.index.featByName.has(f.name) && typedOn(f)).map((f) => f.name),
+    ...(character.features || []).filter((f) => f?.name && d.index.featureByName.has(f.name) && typedOn(f)).map((f) => f.name),
+    ...(character.wealth?.items || []).filter((i) => (i?.effects || []).length || Number(i?.uses) > 0).map((i) => i.name || 'An item'),
+  ];
+  for (const name of typed) {
+    add('warn', `${name} has bonuses or uses typed onto the sheet. Write them into its User Content entry instead (Copy into User Content), where they belong.`, 'content');
   }
   if (d.gestalt) {
     (character.levels || []).forEach((row, i) => {

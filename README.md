@@ -52,7 +52,8 @@ there. Changing rules never loses anything typed; it changes which rules read it
   Language allow
 - **Inventory and money** — a shop of the SRD's equipment, an inventory with
   weight and value, coins kept as a ledger of what was bought, sold and found,
-  and the load it all makes; custom items of your own
+  and the load it all makes; items of your own are written in User Content
+  and bought there
 - **Held choices** — once a character is finished, its race, classes,
   scores, skills, feats, spells known and languages are changed in the creator,
   and every change is kept in the sheet's history; a campaign's GMs are told

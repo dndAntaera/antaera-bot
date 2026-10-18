@@ -813,11 +813,12 @@ export function buildSuite(data) {
     t.ok(!d.notices.some((n) => n.level === 'error' && /Cleave/.test(n.text)), 'no Power Attack needed');
     c.race.name = 'Moonfolk';
     c.feats.push({ name: 'Made-up Feat', slot: 'other' });
-    const errors = derive(c, srd).notices.filter((n) => n.level === 'error' && /custom character/.test(n.text)).map((n) => n.text);
+    const errors = derive(c, srd).notices.filter((n) => n.level === 'error' && /neither the SRD nor User Content/.test(n.text)).map((n) => n.text);
     t.eq(errors.length, 2, 'the race and the feat that exist nowhere');
     const plain = characterWith(srd, [['Fighter']]);
     plain.race.name = 'Moonfolk';
-    t.ok(!derive(plain, srd).notices.some((n) => /custom character/.test(n.text)), 'an ordinary character may type its own');
+    const said = derive(plain, srd).notices.filter((n) => /neither the SRD nor User Content/.test(n.text));
+    t.eq(said.map((n) => n.level), ['warn'], 'an older sheet’s typed race still counts, and is flagged');
   });
 
   test('a spell’s effects count while it is switched on', (t) => {
@@ -1731,7 +1732,7 @@ export function buildSuite(data) {
     c.features = [{ name: 'Boon' }];
     c.skills = [{ name: 'Spot', subtype: '', ranks: 0, misc: 0 }];
     const d = derive(c, srd);
-    t.ok(!d.notices.some((n) => /custom character/.test(n.text)), 'all of it exists, in User Content');
+    t.ok(!d.notices.some((n) => /neither the SRD nor User Content|typed onto the sheet/.test(n.text)), 'all of it exists, in User Content');
     const spot = rollSheet(d, c).skills.find((s) => s.name === 'Spot');
     t.eq(spot.total, d.skills.lines.find((l) => l.name === 'Spot').total, '/roll reads the same total, the trait included');
   });

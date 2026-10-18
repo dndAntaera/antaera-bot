@@ -18,9 +18,7 @@ import {
   ABILITIES, ABILITY_NAMES, abilityIncreaseLevels, newAbilityRolls, rollAbilityArray, placeScore,
 } from '../engine/abilities.js';
 import { describeTarget } from '../engine/effects.js';
-import { CREATURE_TYPES, CREATURE_SUBTYPES } from '../engine/creatures.js';
-import { specialsEditor } from './specials-editor.js';
-import { nameField, choosesOnly } from './names.js';
+import { nameField, copyToUserContent } from './names.js';
 import { CONTENT_TYPES, CONTENT_KINDS, unusedContent } from '../engine/library.js';
 
 const SAVES = [['fort', 'Fortitude'], ['ref', 'Reflex'], ['will', 'Will']];
@@ -70,9 +68,7 @@ export function identityPanel(app) {
       d.levelAdjustment.capped ? labelled('Level adj. allowed', out('levelAdjustment.allowed', { format: 'signed' })) : null,
     ),
     raceFacts,
-    // A race the sheet does not know is entered here - except a custom
-    // character's, which is one that exists, chosen from the list.
-    known || choosesOnly(app) || !c.race?.name ? null : typedRaceFields(app),
+    known || !c.race?.name ? null : typedRaceBefore(app),
     templatesBlock(app),
     d.modules.backgrounds ? backgroundRow(app) : null,
     rs.id === 'antaera'
@@ -81,49 +77,37 @@ export function identityPanel(app) {
 }
 
 /**
- * What a race the sheet does not know is, entered by hand: its type and
- * subtype, size, speed, hit dice, level adjustment, ability adjustments and
- * traits. On the sheet and in the creator's race step alike; once the
- * character is finished, like every held choice, only in the creator - so the
- * whole of it is marked held, buttons and all.
+ * A race typed in by hand on a sheet from before: what it says, which still
+ * counts, and the way to write it up in User Content so it is chosen from
+ * there like any other.
  */
-export function typedRaceFields(app) {
+function typedRaceBefore(app) {
   const c = app.character;
-  const d = app.derived;
-  const sizes = app.rules.core.sizes.map((s) => s.name);
-  return h('div.typed-race', { dataset: { lock: 'race' } },
-    row(
-      labelled('Type', listChoice('race.type', c.race?.type, CREATURE_TYPES, 'Choose a type')),
-      labelled('Subtype', listChoice('race.subtype', c.race?.subtype, CREATURE_SUBTYPES, 'None')),
-      labelled('Size', select('race.size', c.race?.size, sizes, { className: 'narrow' })),
-      labelled('Speed', field('race.speed', c.race?.speed, { type: 'int', width: '4rem' })),
-      labelled('Racial HD', field('race.racialHD', c.race?.racialHD, { type: 'int', width: '4rem', title: 'Hit dice from the race itself, before any class levels.' })),
-      labelled('Level adj.', field('race.la', c.race?.la, { type: 'int', width: '4rem' })),
-      labelled('Extra skill points', field('race.skillPointsPerLevel', c.race?.skillPointsPerLevel, { type: 'int', width: '4rem', title: 'Per level, before the first-level multiplier.' })),
-      h('span.hint', { text: 'A race the sheet does not know. Enter what it is here, or write it up under User Content to use it again.' })),
-    h('details.aside', { open: (c.race?.specials || []).length > 0 },
-      h('summary', 'Ability adjustments and traits for this race'),
-      row(...ABILITIES.map((key) => labelled(key.toUpperCase(),
-        field(`race.abilityAdjust.${key}`, c.race?.abilityAdjust?.[key], { type: 'int', width: '3.5rem' })))),
-      c.race?.traits ? row(labelled('Racial traits, as written before', textarea('race.traits', c.race?.traits, { rows: 3 }), { wide: true })) : null,
-      h('h3', { text: 'Traits' }),
-      specialsEditor('race.specials', () => {
-        c.race = c.race || {};
-        return (c.race.specials = c.race.specials || []);
-      }, {
-        skillNames: d.index.skills.map((x) => x.name),
-        featNames: app.contentNames?.('feat'),
-        addLabel: 'Add a trait',
-        emptyText: 'None yet. Each trait shows under Special abilities; give one bonuses and they count, give it uses and they are tracked.',
-        onShapeChange: () => { app.recompute(); if (app.panels.abilitiesList) app.rebuildPanel('abilitiesList'); if (app.panels.trackers) app.rebuildPanel('trackers'); },
-      })));
-}
-
-/** A bound dropdown of a fixed list, keeping a value the list does not hold rather than losing it. */
-function listChoice(path, value, list, blank) {
-  const options = [['', blank], ...list.map((x) => [x, x])];
-  if (value && !list.includes(value)) options.push([value, `${value} (not on the list)`]);
-  return select(path, value || '', options);
+  const r = c.race || {};
+  const adjust = Object.entries(r.abilityAdjust || {}).filter(([, v]) => Number(v)).map(([k, v]) => `${Number(v) > 0 ? '+' : ''}${v} ${k.toUpperCase()}`).join(', ');
+  const said = [
+    [r.type, r.subtype ? `(${r.subtype})` : ''].filter(Boolean).join(' '),
+    r.size, r.speed ? `speed ${r.speed} ft.` : '', r.racialHD ? `${r.racialHD} racial HD` : '', r.la ? `LA +${r.la}` : '', adjust,
+    (r.specials || []).length ? `${r.specials.length} trait${r.specials.length === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' - ');
+  return h('div.typed-before',
+    h('p.hint', { text: `${r.name} was typed in by hand before races came only from the SRD and User Content${said ? `: ${said}` : ''}. It still counts. Write it up in User Content to edit it there and choose it like any other.` }),
+    copyToUserContent(app, 'race', {
+      name: r.name, type: r.type || '', subtype: r.subtype || '', size: r.size || 'Medium', speed: r.speed ?? 30,
+      la: r.la || 0, racialHD: r.racialHD || 0, racialHDType: r.racialHDType || 0, abilityAdjust: r.abilityAdjust || {},
+      source: 'Homebrew',
+      // Its traits as words, its traits as abilities, and its extra skill points, all as traits.
+      specials: [
+        ...(String(r.traits || '').trim() ? [{ name: '', type: '', text: r.traits, effects: [] }] : []),
+        ...(r.specials || []),
+        ...(Number(r.skillPointsPerLevel) ? [{ name: 'Extra skill points', type: '', text: '', effects: [{ target: 'skillPoints.perLevel', type: 'untyped', value: Number(r.skillPointsPerLevel) }] }] : []),
+        ...((r.effects || []).length ? [{ name: '', type: '', text: '', effects: r.effects }] : []),
+      ],
+    }, () => {
+      // From now on the race is its User Content entry; what was typed here would count twice.
+      c.race = { name: r.name };
+      app.reopen?.();
+    }));
 }
 
 function backgroundRow(app) {

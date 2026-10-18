@@ -9,13 +9,12 @@
 // chosen at all: they are the class table's, listed with their SRD text.
 
 import { h, field, labelled, panel, row, button, refill, total, checkbox } from './dom.js';
-import { specialsEditor } from './specials-editor.js';
 import { featOptions, featLabel } from '../engine/feats.js';
 import { traitsOfKind, traitEligibility } from '../engine/traits.js';
 import { featureKey } from '../engine/features.js';
 import { describeTarget } from '../engine/effects.js';
 import { perLabel } from '../engine/specials.js';
-import { nameField, choosesOnly } from './names.js';
+import { nameField, copyToUserContent } from './names.js';
 import { loadReference, referenceNow, lookUp, referenceHref } from '../reference.js';
 import { referenceCard } from './reference.js';
 
@@ -178,21 +177,16 @@ export function featsPanel(app) {
       slot.feat ? about('feats', slot.feat.name) : null);
   };
 
-  // Rows in no slot: homebrew typed in by hand, or more feats than slots.
+  // Rows in no slot: a feat a story gave, or more feats than slots - each one
+  // that exists, chosen. One typed in by hand before is shown as it was.
   const inSlots = new Set(plan.slots.map((s) => s.row).filter((r) => r !== null && r !== undefined));
   const loose = c.feats.map((row, i) => ({ row, i })).filter(({ i }) => !inSlots.has(i));
   const otherHost = h('div.list');
-  refill(otherHost, loose.map(({ row: entry, i }) => {
-    const fromContent = d.index.featByName.get(entry.name);
-    // A feat typed in by hand says what it does here; a custom character's is one that exists.
-    const own = !(fromContent || lookUp('feats', entry.name)) && !choosesOnly(app);
-    if (own) asSpecials(c.feats[i]);
-    return h('div.effect-list-row',
-      h('div.list-row',
-        nameField(app, `feats.${i}.name`, entry.name, 'feat', { placeholder: 'Homebrew feat', className: 'grow' }),
-        button('x', () => { c.feats.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Remove' })),
-      own ? rowSpecials(app, `feats.${i}.specials`, () => c.feats[i], 'Benefit', 'Add a benefit') : null);
-  }));
+  refill(otherHost, loose.map(({ row: entry, i }) => h('div.effect-list-row',
+    h('div.list-row',
+      nameField(app, `feats.${i}.name`, entry.name, 'feat', { className: 'grow' }),
+      button('x', () => { c.feats.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Remove' })),
+    typedBefore(app, 'feat', c.feats[i], changed))));
 
   return panel('feats', tf ? 'Feats, traits and flaws' : 'Feats',
     h('div.summary-strip',
@@ -213,12 +207,10 @@ export function featsPanel(app) {
       plan.slots.length ? h('ol.feat-slots', plan.slots.map(slotRow)) : h('p.empty', { text: 'No feats yet: choose a class on the Character page.' })),
     h('details.block.feat-other', { open: loose.length > 0 },
       h('summary', loose.length ? `Other feats (${loose.length})` : 'Other feats'),
-      h('p.hint', { text: choosesOnly(app)
-        ? 'A feat from the SRD or your User Content that fills no slot - one a story gave. Say where it came from in Bonus feats.'
-        : 'A homebrew feat, or one a story gave. It fills no slot; say where it came from in Bonus feats.' }),
+      h('p.hint', { text: 'A feat from the SRD or your User Content that fills no slot - one a story gave. Say where it came from in Bonus feats.' }),
       otherHost,
       row(
-        button(choosesOnly(app) ? 'Add a feat' : 'Add a homebrew feat', () => { c.feats.push({ name: '', slot: 'other', specials: [] }); changed(); }, { subtle: true }),
+        button('Add a feat', () => { c.feats.push({ name: '', slot: 'other' }); changed(); }, { subtle: true }),
         labelled('Bonus feats granted', field('featSlots.bonus', c.featSlots?.bonus, { type: 'int', width: '3.5rem', title: 'Feats given by something other than a class or race - a story, a boon. A class’s and a race’s are already counted.' })),
         h('a.hint', { href: '#/content/feat', text: 'Write a feat of your own' }))),
     tf
@@ -250,8 +242,8 @@ function traitsAndFlaws(app, changed) {
       if (entry && entry.name && !def) {
         // A trait written before the list existed: kept as it was typed.
         rows.push(h('li.trait-row', h('div.list-row',
-          field(`${key}.${i}.name`, entry.name, { className: 'grow' }),
-          field(`${key}.${i}.effect`, entry.effect, { placeholder: 'What it does, in a line', className: 'grow wide' }),
+          h('span.grow', h('strong', { text: entry.name }), entry.effect ? h('span.hint', { text: ` - ${entry.effect}` }) : null,
+            h('span.hint', { text: ' (typed in before the list; choose one from it instead)' })),
           button('x', () => { c[key].splice(i, 1); changed(); }, { subtle: true, danger: true }))));
         continue;
       }
@@ -359,25 +351,27 @@ function asSpecials(row) {
   return row;
 }
 
-/** The ability editor for one row on the sheet, folded away until it is wanted. */
-function rowSpecials(app, path, getRow, label, add) {
-  const list = getRow().specials || [];
-  const summary = () => (list.length ? `${label} (${list.length})` : label);
-  const details = h('details.row-effects', { open: list.length > 0 },
-    h('summary', { text: summary() }),
-    specialsEditor(path, () => (getRow().specials = getRow().specials || []), {
-      skillNames: app.derived.index.skills.map((x) => x.name),
-      featNames: app.contentNames?.('feat'),
-      addLabel: add,
-      emptyText: 'Nothing yet. Add one and it shows under Special abilities, with its uses tracked and its bonuses counted.',
-      onShapeChange: () => {
-        details.querySelector('summary').textContent = (getRow().specials || []).length ? `${label} (${getRow().specials.length})` : label;
-        app.recompute();
-        app.rebuildPanel('abilitiesList');
-        if (app.panels.trackers) app.rebuildPanel('trackers');
-      },
-    }));
-  return details;
+/**
+ * What a feat or misc feature row typed onto the sheet before: its abilities,
+ * which still count, and the way to write them into User Content - as the
+ * entry itself, when the name is in neither the SRD nor User Content, or else
+ * nothing to move but a note that its own entry is where they belong.
+ */
+function typedBefore(app, kind, row, changed) {
+  if (!row) return null;
+  asSpecials(row);
+  const abilities = (row.specials || []).filter((sp) => sp && (sp.name || sp.text || (sp.effects || []).length || Number(sp.uses) > 0));
+  if (!abilities.length) return null;
+  const known = kind === 'feat'
+    ? app.derived.index.featByName.has(row.name) || Boolean(lookUp('feats', row.name))
+    : app.derived.index.featureByName?.has(row.name);
+  const words = abilities.map((sp) => [sp.name, sp.text, (sp.effects || []).length ? bonusesInWords(sp.effects) : '', Number(sp.uses) > 0 ? `${sp.uses} ${perLabel(sp.usesPer)}` : '']
+    .filter(Boolean).join(': ')).join('; ');
+  return h('div.typed-before',
+    h('p.hint', { text: `Typed onto the sheet before: ${words}. It still counts.${known ? ' Write it into the entry in User Content instead, and remove it here.' : ''}` }),
+    known
+      ? button('Remove what was typed here', () => { delete row.specials; changed(); }, { subtle: true, danger: true, title: 'Its entry in User Content says what it does.' })
+      : copyToUserContent(app, kind, { name: row.name, source: 'Homebrew', specials: abilities }, () => { delete row.specials; changed(); }));
 }
 
 /** "+2 racial Spot; +4 racial Hide (in rocky terrain)": an ability's bonuses in words. */
@@ -511,26 +505,22 @@ export function abilitiesListPanel(app, ways = {}) {
     activeSpellsBlock(app, changed),
     h('details.block', { open: (c.features || []).some((f) => f?.name) },
       h('summary', 'Misc features'),
-      h('p.hint', { text: 'A boon, a bloodline, a curse - anything else the character has. Pick one from User Content by name, or write its abilities here: give one bonuses and they count, give it uses and they are tracked.' }),
+      h('p.hint', { text: 'A boon, a bloodline, a curse - anything else the character has, written in User Content and chosen here. Its bonuses count and its uses are tracked.' }),
       miscFeatureRows(app, changed),
       row(
-        button('Add a misc feature', () => { c.features = c.features || []; c.features.push({ name: '', specials: [] }); changed(); }, { subtle: true }),
+        button('Add a misc feature', () => { c.features = c.features || []; c.features.push({ name: '' }); changed(); }, { subtle: true }),
         h('a.hint', { href: '#/content/feature', text: 'Write one in User Content' }))));
 }
 
-/** Misc features typed onto the sheet, each with its abilities. */
+/** Misc features, each one from User Content. */
 function miscFeatureRows(app, changed) {
   const c = app.character;
   return h('div.list', (c.features || []).map((entry, i) => {
-    const fromContent = app.derived.index.featureByName?.get(entry.name);
-    asSpecials(c.features[i]);
     return h('div.effect-list-row',
       h('div.list-row',
-        nameField(app, `features.${i}.name`, entry.name, 'feature', { placeholder: 'Misc feature', className: 'grow' }),
-        fromContent ? h('span.hint', { text: 'from User Content' }) : null,
+        nameField(app, `features.${i}.name`, entry.name, 'feature', { className: 'grow' }),
         button('x', () => { c.features.splice(i, 1); changed(); }, { subtle: true, danger: true, title: 'Remove' })),
-      // A custom character's misc features are the ones in User Content, as they are written there.
-      choosesOnly(app) ? null : rowSpecials(app, `features.${i}.specials`, () => c.features[i], fromContent ? 'More abilities' : 'Abilities', 'Add an ability'));
+      typedBefore(app, 'feature', c.features[i], changed));
   }));
 }
 

@@ -1,14 +1,17 @@
 // Inventory, equipment slots, the shop, and the attack calculator.
 //
 // The numbers are engine/inventory.js's; this file draws them and records what
-// the player does: buying, selling, reordering and removing items, writing a
-// custom item, putting items into slots, and choosing how to attack.
+// the player does: buying, selling, reordering and removing items, putting
+// items into slots, and choosing how to attack. Every item is the SRD's or the
+// player's User Content, its mechanics its entry's: a homebrew sword is
+// written in User Content and bought in the Shop, never typed in here.
 
-import { h, field, checkbox, labelled, panel, row, button, refill, total, out } from './dom.js';
-import { effectsEditor } from './effects-editor.js';
+import { h, field, checkbox, select, labelled, panel, row, button, refill, total, out } from './dom.js';
 import {
-  BODY_SLOTS, ITEM_CATEGORIES, itemFromReference, buyItem, removeItem, purchaseOf, slotChoices, attackFor, newItemId,
+  BODY_SLOTS, itemFromReference, buyItem, removeItem, purchaseOf, slotChoices, attackFor, newItemId,
 } from '../engine/inventory.js';
+import { describeTarget } from '../engine/effects.js';
+import { copyToUserContent } from './names.js';
 import { loadReference, referenceNow, lookUp, referenceHref } from '../reference.js';
 import { referenceCard } from './reference.js';
 
@@ -91,11 +94,11 @@ export function inventoryPanel(app) {
             h('span', { text: item.name || 'Unnamed item' })),
           h('span.tag', { text: item.category || 'Gear' }),
           (line.slots || []).length ? h('span.tag.is-equipped', { text: 'equipped' }) : null,
-          item.custom ? h('span.tag', { text: 'custom' }) : null,
+          item.custom ? h('span.tag', { text: 'User Content' }) : null,
           ref ? h('a.hint', { href: referenceHref('equipment', item.ref), text: 'SRD' }) : null),
         h('td', { dataset: { label: 'Qty' } }, field(`wealth.items.${i}.qty`, item.qty, { type: 'int', min: 0, width: '4rem' })),
-        h('td', { dataset: { label: 'Weight' } }, field(`wealth.items.${i}.weight`, item.weight, { type: 'number', step: '0.1', min: 0, width: '5rem' })),
-        h('td', { dataset: { label: 'Value' } }, field(`wealth.items.${i}.value`, item.value, { type: 'number', step: '0.01', min: 0, width: '6rem' })),
+        h('td.num', { dataset: { label: 'Weight' }, text: item.weight ? lb(item.weight) : '-' }),
+        h('td.num', { dataset: { label: 'Value' }, text: item.value ? gp(item.value) : '-' }),
         h('td.num', { dataset: { label: 'Total weight' } }, out(`inventory.items.${i}.lineWeight`, { format: 'lb' })),
         h('td.num', { dataset: { label: 'Total value' } }, out(`inventory.items.${i}.lineValue`, { format: 'gp' })),
         h('td.num', { dataset: { label: 'Paid' }, text: paid ? gp(paid) : '-' }),
@@ -124,7 +127,7 @@ export function inventoryPanel(app) {
     inv.legacy ? h('p.hint', { text: 'This sheet counted its coins by hand before the inventory; that count is where the ledger starts.' }) : null,
     h('div.table-scroll', h('table.inventory-table',
       h('thead', h('tr', ['', 'Item', 'Qty', 'Weight', 'Value', 'Total weight', 'Total value', 'Paid', ''].map((t) => h('th', { text: t })))),
-      h('tbody', rows.length ? rows : h('tr', h('td.empty', { colSpan: 9, text: 'Nothing carried yet. Buy something in the shop, or add a custom item.' }))),
+      h('tbody', rows.length ? rows : h('tr', h('td.empty', { colSpan: 9, text: 'Nothing carried yet. Buy something in the shop.' }))),
       h('tfoot', h('tr',
         h('td'), h('th', { text: 'Carried' }), h('td'), h('td'), h('td'),
         h('td.num', out('inventory.itemsWeight', { format: 'lb' })),
@@ -132,7 +135,7 @@ export function inventoryPanel(app) {
         h('td'), h('td'))))),
     row(
       h('a.btn', { href: `#/sheet/${c.id}/shop` }, 'Go to the shop'),
-      customItemForm(app, () => changed())),
+      h('a.hint', { href: '#/content/item', text: 'An item the SRD does not have? Write it in User Content, then buy it in the shop.' })),
     h('div.block',
       h('h3', 'Load'),
       row(
@@ -151,38 +154,56 @@ export function inventoryPanel(app) {
         startingWealthRow(app))));
 }
 
-/** An inventory row opened: uses, notes, effects, and its statistics. */
+const ENHANCEMENTS = Array.from({ length: 11 }, (_, n) => [n, n ? `+${n}` : 'none']);
+
+/**
+ * An inventory row opened: what it is, its notes, and the choices an item of
+ * its kind takes - a weapon's or armor's enhancement, and masterwork. Its
+ * statistics and what it does are its entry's, in the SRD or User Content.
+ */
 function itemDetails(app, item, i, changed) {
   const s = item.stats;
-  const statField = (key, label, opts = {}) => labelled(label, field(`wealth.items.${i}.stats.${key}`, s[key], { width: '5rem', ...opts }));
-  const fx = item.effects || [];
+  const enhancement = () => {
+    const el = select(`wealth.items.${i}.stats.enhancement`, s.enhancement || 0, ENHANCEMENTS);
+    el.dataset.kind = 'int';
+    return labelled('Enhancement', el);
+  };
+  const content = app.derived.index.itemByName?.get(item.name);
   return h('div.inventory-details',
-    s?.kind === 'weapon' ? row(
-      statField('damageMedium', 'Damage (Medium)', { placeholder: '1d8' }),
-      statField('damageSmall', 'Damage (Small)', { placeholder: '1d6' }),
-      statField('critical', 'Critical', { placeholder: '19-20/x2' }),
-      statField('range', 'Range (ft.)', { type: 'int' }),
-      statField('enhancement', 'Enhancement', { type: 'int', min: 0, max: 10 }),
-      checkbox(`wealth.items.${i}.stats.masterwork`, s.masterwork, 'Masterwork'),
-      checkbox(`wealth.items.${i}.stats.finesse`, s.finesse, 'Finesse')) : null,
-    s && (s.kind === 'armor' || s.kind === 'shield') ? row(
-      statField('bonus', 'AC bonus', { type: 'int' }),
-      statField('maxDex', 'Max Dex', { type: 'int', placeholder: '-' }),
-      statField('acp', 'Check penalty', { type: 'int', min: 0 }),
-      statField('asf', 'Spell failure %', { type: 'int', min: 0 }),
-      statField('enhancement', 'Enhancement', { type: 'int', min: 0, max: 10 }),
+    s ? h('p.hint', { text: statsLine(item) }) : null,
+    s && ['weapon', 'armor', 'shield'].includes(s.kind) ? row(
+      enhancement(),
       checkbox(`wealth.items.${i}.stats.masterwork`, s.masterwork, 'Masterwork')) : null,
-    row(
-      labelled('Uses per day', field(`wealth.items.${i}.uses`, item.uses, { type: 'int', width: '4rem', placeholder: '-', title: 'For an item usable only so many times a day; the Feats page tracks it.' })),
-      labelled('Notes', field(`wealth.items.${i}.notes`, item.notes, { className: 'grow', placeholder: 'Where it came from, what it does' }), { wide: true })),
-    h('details.row-effects', { open: fx.length > 0 },
-      h('summary', fx.length ? `${fx.length} effect${fx.length === 1 ? '' : 's'}` : 'Effects - count while it is in an equipment slot'),
-      effectsEditor(`wealth.items.${i}.effects`, () => (app.character.wealth.items[i].effects = app.character.wealth.items[i].effects || []), {
-        skillNames: app.derived.index.skills.map((x) => x.name),
-        emptyText: 'None. A cloak of resistance +1 is all saving throws / resistance / +1.',
-        onShapeChange: () => app.recompute(),
-      })),
-    item.ref && lookUp('equipment', item.ref) ? h('div.row-reference-body', referenceCard('equipment', lookUp('equipment', item.ref))) : null);
+    row(labelled('Notes', field(`wealth.items.${i}.notes`, item.notes, { className: 'grow', placeholder: 'Where it came from, who made it' }), { wide: true })),
+    typedOnItem(app, item, content, changed),
+    item.ref && lookUp('equipment', item.ref) ? h('div.row-reference-body', referenceCard('equipment', lookUp('equipment', item.ref))) : null,
+    content?.description ? h('p.special-text', { text: content.description }) : null);
+}
+
+/**
+ * Bonuses or uses typed onto an inventory row before: they still count, and
+ * they belong in the item's entry in User Content - written there by the
+ * button, as a new entry, or into the one that exists by hand.
+ */
+function typedOnItem(app, item, content, changed) {
+  const fx = (item.effects || []).filter((e) => e?.target);
+  const uses = Number(item.uses) > 0 ? Number(item.uses) : 0;
+  if (!fx.length && !uses) return null;
+  const words = [
+    fx.map((e) => `${Number(e.value) < 0 ? '' : '+'}${Number(e.value) || 0}${e.type && e.type !== 'untyped' ? ` ${e.type}` : ''} ${describeTarget(e.target)}${e.condition ? ` (${e.condition})` : ''}`).join('; '),
+    uses ? `${uses} uses a day` : '',
+  ].filter(Boolean).join('; ');
+  const clear = () => { delete item.effects; delete item.uses; delete item.usesUsed; changed('equipment', 'trackers', 'abilitiesList'); };
+  return h('div.typed-before',
+    h('p.hint', { text: `Typed onto this item before: ${words}. It still counts while worn.${content ? ' Write it into the item\u2019s entry in User Content instead, and remove it here.' : ''}` }),
+    content
+      ? button('Remove what was typed here', clear, { subtle: true, danger: true })
+      : copyToUserContent(app, 'item', {
+        name: item.name, category: item.category || 'Wondrous item', weight: Number(item.weight) || 0, value: Number(item.value) || 0,
+        slot: item.slot || '', description: item.notes || '', source: 'Homebrew',
+        ...(item.stats ? { stats: structuredClone(item.stats) } : {}),
+        specials: [{ name: '', type: '', text: '', uses: uses || null, usesPer: 'day', effects: fx }],
+      }, clear));
 }
 
 /** Starting wealth: wealth by level, a figure of one's own, or the campaign's. */
@@ -192,109 +213,6 @@ function startingWealthRow(app) {
   return inCampaign
     ? h('span.hint', { text: w.source === 'campaign' ? 'Starting wealth is set by the campaign.' : 'Starting wealth is wealth by level.' })
     : labelled('Starting wealth, your own figure', field('wealth.startingGold', app.character.wealth?.startingGold, { type: 'int', width: '7rem', placeholder: w.expected !== null ? String(w.expected) : 'by level', title: 'Leave empty for wealth by level.' }));
-}
-
-/* --------------------------------------------------------------------------
-   A custom item: its values asked for, then kept with the player's homebrew
-   -------------------------------------------------------------------------- */
-
-const WEAPON_HANDS = [['light', 'Light'], ['one-handed', 'One-handed'], ['two-handed', 'Two-handed'], ['ranged', 'Ranged']];
-const ARMOR_TYPES = [['light', 'Light'], ['medium', 'Medium'], ['heavy', 'Heavy']];
-
-function customItemForm(app, done) {
-  const draft = { name: '', category: 'Gear', weight: '', value: '', bought: true, slot: '', hands: 'one-handed', damage: '', critical: '20/x2', range: '', bonus: '', maxDex: '', acp: '0', asf: '0', armorType: 'light', description: '' };
-  const message = h('p.hint.is-error', { hidden: true });
-  const fields = h('div.custom-item-fields');
-  const input = (key, label, opts = {}) => labelled(label, h('input.field', {
-    type: opts.type || 'text', value: draft[key], placeholder: opts.placeholder || '', step: opts.step, min: opts.min,
-    dataset: { unbound: '' }, oninput: (ev) => { draft[key] = ev.target.value; },
-    style: opts.width ? `width:${opts.width}` : undefined,
-  }), { wide: opts.wide });
-  const choose = (key, label, options, onChange) => labelled(label, h('select.field', {
-    dataset: { unbound: '' },
-    onchange: (ev) => { draft[key] = ev.target.value; if (onChange) onChange(); },
-  }, options.map(([v, t]) => h('option', { value: v, text: t, selected: draft[key] === v }))));
-
-  const draw = () => refill(fields,
-    row(
-      input('name', 'Name', { placeholder: 'Grandfather’s axe', wide: true }),
-      choose('category', 'Category', ITEM_CATEGORIES.map((x) => [x, x]), draw),
-      input('weight', 'Weight (lb.)', { type: 'number', step: '0.1', min: 0, width: '6rem' }),
-      input('value', 'Value (gp)', { type: 'number', step: '0.01', min: 0, width: '7rem' })),
-    draft.category === 'Weapon' ? row(
-      choose('hands', 'Held', WEAPON_HANDS),
-      input('damage', 'Damage', { placeholder: '1d8', width: '6rem' }),
-      input('critical', 'Critical', { placeholder: '19-20/x2', width: '7rem' }),
-      input('range', 'Range increment (ft.)', { type: 'number', min: 0, width: '6rem' })) : null,
-    draft.category === 'Armor' || draft.category === 'Shield' ? row(
-      draft.category === 'Armor' ? choose('armorType', 'Type', ARMOR_TYPES) : null,
-      input('bonus', `${draft.category} bonus`, { type: 'number', min: 0, width: '5rem' }),
-      input('maxDex', 'Max Dex (blank for none)', { type: 'number', min: 0, width: '5rem' }),
-      input('acp', 'Check penalty', { type: 'number', min: 0, width: '5rem' }),
-      input('asf', 'Spell failure %', { type: 'number', min: 0, width: '5rem' })) : null,
-    ['Ring', 'Wondrous item', 'Clothing', 'Other'].includes(draft.category) ? row(
-      choose('slot', 'Worn in', [['', 'no slot'], ...BODY_SLOTS.filter((b) => b.key !== 'ring2').map((b) => [b.key === 'ring1' ? 'ring' : b.key, b.label])])) : null,
-    row(input('description', 'What it is', { wide: true, placeholder: 'Optional' })),
-    row(checkbox('', draft.bought, 'Paid for it: take its value from coins', { title: 'Leave off for something found or given.' }), message));
-  fields.addEventListener('change', (ev) => { if (ev.target.type === 'checkbox') draft.bought = ev.target.checked; });
-
-  const save = () => {
-    const problems = [];
-    const number = (key, label, { required = true } = {}) => {
-      const raw = String(draft[key]).trim();
-      if (raw === '') { if (required) problems.push(label); return null; }
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n < 0) { problems.push(label); return null; }
-      return n;
-    };
-    if (!draft.name.trim()) problems.push('a name');
-    const weight = number('weight', 'its weight');
-    const value = number('value', 'its value');
-    let stats;
-    if (draft.category === 'Weapon') {
-      if (!/^\d+d\d+([+-]\d+)?$/.test(draft.damage.trim())) problems.push('its damage, like 1d8');
-      if (!/^(\d+(-\d+)?\/)?x\d$/.test(draft.critical.trim())) problems.push('its critical, like 19-20/x2');
-      const range = number('range', 'its range', { required: draft.hands === 'ranged' });
-      stats = { kind: 'weapon', hands: draft.hands, damage: draft.damage.trim(), damageMedium: draft.damage.trim(), critical: draft.critical.includes('/') ? draft.critical.trim() : `20/${draft.critical.trim()}`, range, ranged: draft.hands === 'ranged', thrown: draft.hands !== 'ranged' && Boolean(range), finesse: draft.hands === 'light', enhancement: 0, masterwork: false };
-    } else if (draft.category === 'Armor' || draft.category === 'Shield') {
-      const bonus = number('bonus', `its ${draft.category.toLowerCase()} bonus`);
-      stats = {
-        kind: draft.category === 'Armor' ? 'armor' : 'shield',
-        armorType: draft.category === 'Armor' ? draft.armorType : 'shield',
-        bonus,
-        maxDex: number('maxDex', 'its max Dex', { required: false }),
-        acp: number('acp', 'its check penalty'),
-        asf: number('asf', 'its spell failure'),
-        enhancement: 0,
-        masterwork: false,
-      };
-    }
-    if (problems.length) {
-      message.hidden = false;
-      message.textContent = `Still needed: ${problems.join(', ')}.`;
-      return;
-    }
-    const c = app.character;
-    const entry = {
-      kind: 'item', name: draft.name.trim(), category: draft.category, weight, value, slot: draft.slot || '',
-      description: draft.description.trim(), inventoryItem: true, custom: true, effects: [], ...(stats ? { stats } : {}),
-    };
-    // Kept with the player's own homebrew, so it can be bought again - on any character.
-    app.saveCustomItem?.(entry);
-    const rowItem = { id: newItemId(), name: entry.name, category: entry.category, weight, value, slot: entry.slot, notes: entry.description, custom: true, effects: [], ...(stats ? { stats } : {}) };
-    const next = buyItem(c, rowItem, 1, { free: !draft.bought });
-    c.wealth.items = next.items;
-    c.wealth.ledger = next.ledger;
-    done();
-  };
-
-  draw();
-  return h('details.custom-item',
-    h('summary.btn.subtle', 'Add a custom item'),
-    h('div.custom-item-body',
-      h('p.hint', { text: 'Something the SRD does not list. It is saved with your homebrew items too, so the shop offers it again, and it counts in any campaign.' }),
-      fields,
-      row(h('button.btn.primary', { type: 'button', onclick: save }, 'Add to inventory'))));
 }
 
 /* ==========================================================================
@@ -370,7 +288,7 @@ const SHOP_CATEGORIES = [
   ['Special substances', (e) => e.subcategory === 'Special Substances and Items'],
   ['Mounts and transport', (e) => /Mounts|Transport/.test(e.subcategory || '')],
   ['Trade goods', (e) => e.family === 'Trade Goods'],
-  ['Your items', null],
+  ['User Content', null],
 ];
 
 export function shopPanel(app) {
@@ -381,6 +299,8 @@ export function shopPanel(app) {
   const said = h('p.shop-said', { role: 'status' });
 
   const buy = (rowItem, qty, free) => {
+    // A User Content item comes with its entry, which is where what it does is written.
+    if (rowItem.custom) app.adopt?.('item', rowItem.name);
     const next = buyItem(c, rowItem, qty, { free });
     c.wealth.items = next.items;
     c.wealth.ledger = next.ledger;
@@ -391,28 +311,29 @@ export function shopPanel(app) {
 
   const draw = () => {
     const coins = app.derived.inventory.coins;
-    const mine = (app.personalItems?.() || []).map((e) => ({ ...e, _custom: true }));
+    const mine = [...new Map((app.shelfEntries?.('item') || []).filter((e) => e?.name).map((e) => [e.name, { ...e, _custom: true }])).values()];
     const reference = referenceNow('equipment')?.list || [];
     const test = SHOP_CATEGORIES.find(([name]) => name === shopState.category)?.[1];
-    const pool = shopState.category === 'Your items' ? mine : reference.filter(test || (() => true));
+    const pool = shopState.category === 'User Content' ? mine : reference.filter(test || (() => true));
     const found = pool.filter((e) => !shopState.q || lower(e.name).includes(lower(shopState.q))).slice(0, 200);
     coinLine.textContent = `Coins: ${gp(coins)}`;
-    if (!reference.length && shopState.category !== 'Your items') {
+    if (!reference.length && shopState.category !== 'User Content') {
       refill(list, h('p.empty', { text: 'Opening the shop…' }));
       return;
     }
     refill(list, h('table.shop-table',
       h('thead', h('tr', ['Item', 'Cost', 'Weight', 'Details', 'Qty', ''].map((t) => h('th', { text: t })))),
       h('tbody', found.length ? found.map((e) => {
+        // What a User Content item does stays its entry's, carried on the sheet by its name.
         const rowItem = e._custom
-          ? { name: e.name, category: e.category || 'Gear', weight: Number(e.weight) || 0, value: Number(e.value) || 0, slot: e.slot || '', notes: e.description || '', custom: true, effects: e.effects || [], ...(e.stats ? { stats: structuredClone(e.stats) } : {}) }
+          ? { name: e.name, category: e.category || 'Gear', weight: Number(e.weight) || 0, value: Number(e.value) || 0, slot: e.slot || '', custom: true, ...(e.stats ? { stats: structuredClone(e.stats) } : {}) }
           : itemFromReference(e);
         const key = e.name;
         const qty = Math.max(1, Number(shopState.qty[key]) || 1);
         const cost = rowItem.value * qty;
         const short = cost > coins;
         return h('tr',
-          h('td', h('span.shop-name', { text: e.name }), e._custom ? h('span.tag', { text: 'yours' }) : null),
+          h('td', h('span.shop-name', { text: e.name }), e._custom ? h('span.tag', { text: 'User Content' }) : null),
           h('td.num', { dataset: { label: 'Cost' }, text: rowItem.value ? gp(rowItem.value) : 'free' }),
           h('td.num', { dataset: { label: 'Weight' }, text: rowItem.weight ? lb(rowItem.weight) : '-' }),
           h('td.hint.shop-details', { text: statsLine(rowItem) || rowItem.category }),
@@ -423,7 +344,7 @@ export function shopPanel(app) {
           h('td.shop-actions',
             h('button.btn', { type: 'button', disabled: short, title: short ? `Costs ${gp(cost)}; you have ${gp(coins)}.` : `Pay ${gp(cost)}.`, onclick: () => buy(rowItem, qty, false) }, short ? 'Too dear' : 'Buy'),
             button('Take', () => buy(rowItem, qty, true), { subtle: true, title: 'Add it without paying: found, given, or already owned.' })));
-      }) : h('tr', h('td.empty', { colSpan: 6, text: shopState.category === 'Your items' ? 'No custom items yet. Add one from the Inventory page.' : 'Nothing matches.' })))));
+      }) : h('tr', h('td.empty', { colSpan: 6, text: shopState.category === 'User Content' ? 'No items in your User Content yet. Write one under User Content, Item, and it is sold here.' : 'Nothing matches.' })))));
   };
 
   const coinLine = h('span.shop-coins');

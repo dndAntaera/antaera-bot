@@ -48,7 +48,7 @@ export const WIZARD_STEPS = [
     title: 'Race',
     intro: [
       'Your race adjusts your ability scores and sets your size, speed and a handful of traits. Type to narrow the list, and choose one to see what it gives.',
-      'A race the sheet does not know can be typed in instead, or written up under User Content so its traits count.',
+      'A race the SRD does not have is written up in User Content first, and then chosen here like any other.',
     ],
     panels: [],
     notices: ['identity'],
@@ -345,40 +345,11 @@ function conceptStep(app, ways) {
       h('p.hint', { text: 'The variant races, classes and feats - aquatic dwarves, bardic sages, spelltouched feats - are in the lists as you go. Rules of play, like defense bonus and spell points, come in the Advanced step.' }))));
 }
 
-/**
- * One box for a choice from a list: typing narrows the list, and choosing one
- * (or leaving the box) takes it. A name not on the list can be typed in all the
- * same, for homebrew the sheet does not yet know.
- *
- * @param opts { label, listId, value, choices: [{ name, note }], placeholder, onPick(name) }
- */
-function pickerBox(opts) {
-  const input = h('input.field.wizard-pick-field', {
-    type: 'text',
-    value: opts.value,
-    placeholder: opts.placeholder,
-    autocomplete: 'off',
-    'aria-label': opts.label,
-    dataset: { unbound: '' },
-  });
-  input.setAttribute('list', opts.listId);
-  input.addEventListener('change', () => {
-    const typed = input.value.trim();
-    const match = opts.choices.find((c) => c.name.toLowerCase() === typed.toLowerCase());
-    const name = match ? match.name : typed;
-    if (name !== opts.value) opts.onPick(name);
-  });
-  return h('div.wizard-pick',
-    labelled(opts.label, input),
-    h('datalist', { id: opts.listId }, opts.choices.map((c) => h('option', { value: c.name, label: c.note || '' }))));
-}
-
 function raceStep(app, ways) {
   const chosen = app.character.race?.name || '';
   const choices = ways.raceChoices();
-  // A custom character's race is one that exists, chosen from the list.
-  const custom = Boolean(app.character.meta?.custom);
-  const customPick = () => {
+  // A race is one that exists - the SRD's, or User Content's - chosen from the list.
+  const pick = () => {
     const names = app.contentNames?.('race') || choices.map((r) => r.name);
     return labelled('Race', h('select.field.wizard-pick-field', {
       dataset: { unbound: '' },
@@ -394,14 +365,7 @@ function raceStep(app, ways) {
 
   return h('div.wizard-body',
     h('section.panel', h('div.panel-body',
-      custom ? h('div.wizard-pick', customPick()) : pickerBox({
-        label: 'Race',
-        listId: 'wizard-race-names',
-        value: chosen,
-        placeholder: 'Start typing a race',
-        choices: choices.map((r) => ({ name: r.name, note: [adjust(r.abilityAdjust), r.la ? `LA +${r.la}` : '', r.custom ? 'homebrew' : ''].filter(Boolean).join(' - ') })),
-        onPick: (name) => ways.choose('race.name', name),
-      }),
+      h('div.wizard-pick', pick()),
       chosen
         ? (app.derived.race.known
           ? h('div.race-facts',
@@ -411,9 +375,7 @@ function raceStep(app, ways) {
             total('Level adj.', 'race.la', { format: 'signed' }),
             total('Favored class', 'race.favoredClass'),
             h('p.hint.race-traits', { text: app.derived.race.traits }))
-          : h('div.race-typed',
-            h('p.hint', { text: `${chosen} is not a race the sheet knows: enter what it is below, or write it up under User Content to use it again.` }),
-            ways.typedRace?.()))
+          : h('p.hint', { text: `${chosen} is in neither the SRD nor User Content. Choose another, or write it up in User Content and choose it from there.` }))
         : h('p.hint', { text: 'No race chosen yet.' }))));
 }
 

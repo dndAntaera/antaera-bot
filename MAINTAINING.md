@@ -374,10 +374,16 @@ Inventory and Shop pages, and the attack cards on Combat.
   with the choices on the Combat page - two-weapon fighting, Power Attack,
   Combat Expertise, fighting defensively, charging, flanking, higher ground,
   Rapid Shot, Point Blank Shot - kept in `character.combat.calculator`.
-- **Custom items** are asked for their values (a weapon's damage and critical,
-  armor's bonus and penalties) and saved to the player's own library with
-  `inventoryItem: true`. `usableContent` lets those count in a campaign that
-  allows no homebrew, and the shop's Your items tab offers them anywhere.
+- **Items of a player's own** are written in User Content (Item): a weapon's
+  or armor's statistics follow its category, and what it does is its
+  abilities. The shop's User Content tab sells every item the character may
+  use; a bought one carries its statistics on its row and its abilities from
+  its entry, by name. Nothing mechanical is typed onto a sheet any more - a
+  race, class, template, feat, misc feature or item's mechanics all come from
+  the SRD or User Content (`ui/names.js`). What an older sheet typed in still
+  counts, is flagged by `derive`, and has a Copy into User Content button.
+  Items saved by the old custom-item form keep `inventoryItem: true`, which
+  `usableContent` still lets count in a campaign that allows no homebrew.
 - `migrateInventory` (run by `migrate()`) moves an older sheet's typed armor,
   shield, weapons and coins into all of this, once.
 

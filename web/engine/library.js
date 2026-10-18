@@ -23,7 +23,7 @@
 // alternative - a sheet that points at content it does not carry - is a sheet
 // that quietly breaks the moment it leaves the browser it was made in.
 
-import { BODY_SLOTS, slotKeyFor } from './inventory.js';
+import { BODY_SLOTS, ITEM_CATEGORIES, slotKeyFor } from './inventory.js';
 import { withSpecials, effectsOfSpecials, specialSource, featsGranted } from './specials.js';
 import { creatureKind } from './creatures.js';
 
@@ -153,13 +153,15 @@ export const CONTENT_TYPES = {
     key: 'item',
     plural: 'items',
     label: 'Item',
-    blurb: 'A piece of equipment. Its effects apply while it is worn or held, and stop when it is not.',
+    blurb: 'A piece of equipment: a weapon, armor, a ring, a wondrous item, any gear. Its statistics are a weapon\u2019s or armor\u2019s; its effects apply while it is worn or held, and stop when it is not. Bought or taken from the Shop on a sheet.',
     fields: [
       NAME,
       SOURCE,
+      { key: 'category', label: 'Category', type: 'select', options: ITEM_CATEGORIES.map((c) => [c, c]) },
       { key: 'slot', label: 'Slot', type: 'select', options: ITEM_SLOTS, hint: 'Where it is worn.' },
-      { key: 'value', label: 'Value in gp', type: 'int' },
-      { key: 'weight', label: 'Weight', type: 'int' },
+      { key: 'value', label: 'Value in gp', type: 'number' },
+      { key: 'weight', label: 'Weight in lb.', type: 'number' },
+      { key: 'stats', label: 'Statistics', type: 'itemStats' },
       { key: 'description', label: 'Description', type: 'textarea', wide: true },
       { key: 'specials', label: 'Effects', type: 'specials', add: 'Add an effect',
         hint: 'What it does for whoever wears it, one power at a time - a bonus, a use a day, a spell-like ability.' },
@@ -231,9 +233,9 @@ export function blankEntry(kind) {
   if (!type) throw new Error(`no such content kind: ${kind}`);
   const entry = { kind, name: '', custom: true };
   for (const field of type.fields) {
-    if (field.type === 'magic') continue;
+    if (field.type === 'magic' || field.type === 'itemStats') continue;
     const value = field.type === 'bool' ? false
-      : field.type === 'int' ? 0
+      : field.type === 'int' || field.type === 'number' ? 0
         : field.type === 'list' || field.type === 'specials' ? []
           : field.type === 'abilities' ? {}
             : '';
@@ -243,6 +245,7 @@ export function blankEntry(kind) {
   if (kind === 'race') { entry.size = 'Medium'; entry.speed = 30; }
   if (kind === 'template') entry.speed = null;
   if (kind === 'spell') entry.mode = 'spell';
+  if (kind === 'item') entry.category = 'Wondrous item';
   return entry;
 }
 

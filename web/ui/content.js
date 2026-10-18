@@ -194,11 +194,14 @@ function editor(app, store, kind, index, stored, go) {
 
   // A class's spells or powers: drawn again when Spellcaster or Manifester is ticked.
   const magic = type.fields.some((f) => f.type === 'magic') ? magicSection(app, store, entry, () => persist()) : null;
+  // An item's statistics: a weapon's or armor's, drawn again when its category changes.
+  const itemStats = type.fields.some((f) => f.type === 'itemStats') ? statsSection(entry) : null;
 
   const body = type.layout === 'statblock'
     ? statblock(entry, type, () => persist(), featNames, skillNames)
     : [
-      h('div.content-fields', type.fields.filter((f) => f.type !== 'specials' && f.type !== 'magic').map((f) => fieldFor(f, entry, lists))),
+      h('div.content-fields', type.fields.filter((f) => !['specials', 'magic', 'itemStats'].includes(f.type)).map((f) => fieldFor(f, entry, lists))),
+      itemStats?.host,
       magic?.host,
       type.fields.filter((f) => f.type === 'specials').map(specials),
     ];
@@ -247,6 +250,11 @@ function editor(app, store, kind, index, stored, go) {
   }
 
   bindForm(form, () => entry, () => persist());
+  if (itemStats) {
+    form.addEventListener('change', (ev) => {
+      if (ev.target.dataset?.field === 'category') setTimeout(() => { itemStats.draw(); persist(); }, 0);
+    });
+  }
   // A class casts spells or manifests powers, not both: ticking one clears the other.
   if (magic) {
     form.addEventListener('change', (ev) => {
@@ -265,6 +273,44 @@ function editor(app, store, kind, index, stored, go) {
     });
   }
   return form;
+}
+
+const WEAPON_HANDS = [['light', 'Light'], ['one-handed', 'One-handed'], ['two-handed', 'Two-handed'], ['ranged', 'Ranged']];
+const ARMOR_TYPES = [['light', 'Light'], ['medium', 'Medium'], ['heavy', 'Heavy']];
+
+/**
+ * A weapon's statistics, or armor's or a shield's, as the attack calculator
+ * and the Armor Class read them. Other items have none: what they do is their
+ * effects.
+ */
+function statsSection(entry) {
+  const host = h('section.content-stats');
+  const draw = () => {
+    const kind = { Weapon: 'weapon', Armor: 'armor', Shield: 'shield' }[entry.category] || null;
+    if (!kind) { delete entry.stats; refill(host); host.hidden = true; return; }
+    host.hidden = false;
+    const s = entry.stats = { enhancement: 0, masterwork: false, ...(entry.stats || {}), kind };
+    const cell = (label, control, hint) => h('div.cell', h('span.label', { text: label }), control, hint ? h('span.hint', { text: hint }) : null);
+    const num = (key, opts = {}) => field(`stats.${key}`, s[key], { type: 'int', min: opts.min ?? 0, placeholder: opts.placeholder });
+    refill(host,
+      h('h3', { text: kind === 'weapon' ? 'Weapon statistics' : kind === 'shield' ? 'Shield statistics' : 'Armor statistics' }),
+      kind === 'weapon'
+        ? h('div.content-fields',
+          cell('Held', select('stats.hands', s.hands || 'one-handed', WEAPON_HANDS)),
+          cell('Damage (Medium)', field('stats.damageMedium', s.damageMedium || s.damage, { placeholder: '1d8' })),
+          cell('Damage (Small)', field('stats.damageSmall', s.damageSmall, { placeholder: '1d6' })),
+          cell('Critical', field('stats.critical', s.critical, { placeholder: '19-20/x2' })),
+          cell('Range increment (ft.)', num('range', { placeholder: 'melee' })),
+          h('div.cell.cell-check', checkbox('stats.finesse', s.finesse, 'Finesse', { title: 'Can be wielded with Weapon Finesse.' })))
+        : h('div.content-fields',
+          kind === 'armor' ? cell('Type', select('stats.armorType', s.armorType || 'light', ARMOR_TYPES)) : null,
+          cell(kind === 'shield' ? 'Shield bonus' : 'Armor bonus', num('bonus')),
+          cell('Max Dex', num('maxDex', { placeholder: 'none' }), 'Empty for no limit.'),
+          cell('Check penalty', num('acp')),
+          cell('Spell failure %', num('asf'))));
+  };
+  draw();
+  return { host, draw };
 }
 
 const CASTING_ABILITIES = [['int', 'Intelligence'], ['wis', 'Wisdom'], ['cha', 'Charisma'], ['str', 'Strength'], ['dex', 'Dexterity'], ['con', 'Constitution']];
@@ -371,6 +417,7 @@ function fieldFor(f, entry, lists) {
   let control;
   switch (f.type) {
     case 'int': control = field(f.key, value, { type: 'int', placeholder: f.placeholder }); break;
+    case 'number': control = field(f.key, value, { type: 'number', step: 'any', min: 0, placeholder: f.placeholder }); break;
     case 'bool': return h('div.cell.cell-check', checkbox(f.key, value, f.label, { title: f.hint }));
     case 'select': control = listSelect(f.key, value ?? '', f.options.filter(([v]) => v !== ''), f.options.find(([v]) => v === '')?.[1]); break;
     case 'size': control = f.blank ? listSelect(f.key, value, lists.sizes, f.blank) : select(f.key, value || 'Medium', lists.sizes); break;

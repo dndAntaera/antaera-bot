@@ -10,7 +10,7 @@
 
 import {
   loadRules, withRuleset, derive, blankCharacter, migrate, RULESET_IDS, rollSheet,
-  moduleState, MODULES, BUILD_MODULES, MODULE_LABELS, CONTENT_TYPES, embed, applyCampaign, fillCharacter, packCharacter, packsForCharacter, addPacks, DATA_PACKS, flattenLibrary, restedMagic, restedTrackers,
+  moduleState, MODULES, BUILD_MODULES, MODULE_LABELS, CONTENT_TYPES, blankEntry, embed, applyCampaign, fillCharacter, packCharacter, packsForCharacter, addPacks, DATA_PACKS, flattenLibrary, restedMagic, restedTrackers,
 } from './engine/index.js';
 import { h, paint, refill, button, bindForm, setPath } from './ui/dom.js';
 import {
@@ -24,7 +24,6 @@ import {
   identityPanel, levelsPanel, abilitiesPanel, combatPanel, skillsPanel,
   houserulesPanel, textPanel, trackersPanel, hitPointsPanel, startingWealthPanel,
   effectsPanel, contentPanel, paintEffects, paintConditions, paintContent, paintAcTable,
-  typedRaceFields,
 } from './ui/sheet.js';
 import { referenceNow, lookUp } from './reference.js';
 import { SHEET_PAGES, pageFor, pageForNotice, sheetTabs } from './ui/sheet-pages.js';
@@ -100,18 +99,28 @@ const app = {
   unbind: null,
 };
 
-/** The player's own custom inventory items, kept with their homebrew - offered in any campaign. */
-app.personalItems = () => library.list('item').filter((e) => e.inventoryItem);
-
-/** Keep a custom inventory item with the player's homebrew: a new entry, or the one of that name updated. */
-app.saveCustomItem = (entry) => {
+/**
+ * Write something typed onto a sheet before - a race, a feat, a misc feature,
+ * an item's mechanics - into the player's User Content, and carry it from
+ * there. Returns false, writing nothing, when User Content already has one of
+ * that name.
+ */
+app.copyToUserContent = (kind, entry) => {
+  if (!app.character || !entry?.name) return false;
   const shelf = library.load();
+  const plural = CONTENT_TYPES[kind].plural;
+  if (shelf[plural].some((e) => e.name === entry.name)) return false;
   const stamp = new Date().toISOString();
-  const at = shelf.items.findIndex((e) => e.name === entry.name);
-  if (at >= 0) shelf.items[at] = { ...shelf.items[at], ...entry, updated: stamp };
-  else shelf.items.push({ ...entry, id: newId(), created: stamp, updated: stamp });
+  const written = { ...blankEntry(kind), ...entry, kind, custom: true, id: newId(), created: stamp, updated: stamp };
+  shelf[plural].push(written);
   library.save(shelf);
+  embed(app.character, kind, written);
+  scheduleSave();
+  return true;
 };
+
+/** Draw the open character again, once its changes are saved. */
+app.reopen = () => reopen();
 
 /** The shelves this character may take content from: its campaign's, then the player's. */
 app.shelves = () => (app.character ? shelvesFor(app.character) : []);
@@ -1103,7 +1112,6 @@ function wizardWays() {
       await reopen();
     },
     variants: () => variantsStrip(),
-    typedRace: () => typedRaceFields(app),
     raceChoices: () => byName([
       // The core races, then the variant rules' (aquatic, arctic, desert, jungle, elemental), unless withheld.
       app.rules.races?.races || [],

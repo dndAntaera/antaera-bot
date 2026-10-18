@@ -366,11 +366,13 @@ export function equippedWeapons(character, size = 'Medium') {
       itemId: item.id,
       name: item.name,
       hands: s.hands || 'one-handed',
-      ranged: Boolean(s.ranged),
-      thrown: Boolean(s.thrown),
+      // A weapon written in User Content says how it is held and how far it
+      // reaches; whether it is ranged or thrown follows from those.
+      ranged: s.ranged !== undefined ? Boolean(s.ranged) : s.hands === 'ranged',
+      thrown: s.thrown !== undefined ? Boolean(s.thrown) : s.hands !== 'ranged' && num(s.range) > 0,
       finesse: Boolean(s.finesse),
       damageDice: s.damage || (small ? s.damageSmall : s.damageMedium) || s.damageMedium || '',
-      critical: s.critical || '20/x2',
+      critical: !s.critical ? '20/x2' : String(s.critical).includes('/') ? s.critical : `20/${s.critical}`,
       range: s.range ?? null,
       damageType: s.damageType || '',
       enhancement: num(s.enhancement),
