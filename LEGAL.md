@@ -89,8 +89,8 @@ The **Privacy Policy** and **Terms of Service** are two cards on this site's own
 Legal page, `web/legal/index.html`, linked from the footer and given to Google
 as the app's policy links:
 
-- <https://dndantaera.github.io/antaera-bot/legal/#privacy-policy>
-- <https://dndantaera.github.io/antaera-bot/legal/#terms-of-service>
+- <https://dndantaera.github.io/antaera-sheets/legal/#privacy-policy>
+- <https://dndantaera.github.io/antaera-sheets/legal/#terms-of-service>
 
 Keep those two ids if the page is rewritten; the providers hold the links. If what
 the server stores changes, update the privacy policy in the same change.

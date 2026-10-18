@@ -31,7 +31,7 @@ API = 'https://discord.com/api/v10'
 
 
 def call(method, url, token=None, body=None):
-    headers = {'User-Agent': 'DiscordBot (https://github.com/dndAntaera/antaera-bot, 1.0)'}
+    headers = {'User-Agent': 'DiscordBot (https://github.com/dndAntaera/antaera-sheets, 1.0)'}
     if token:
         headers['Authorization'] = f'Bot {token}'
     if body is not None:
