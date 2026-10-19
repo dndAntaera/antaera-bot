@@ -1755,5 +1755,16 @@ export function buildSuite(data) {
     t.ok(old.notices.some((n) => n.level === 'warn' && /typed onto the sheet before/.test(n.text)));
   });
 
+  test('a save shows its lasting bonuses by kind - resistance, the rest - beside its temporary modifier', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    embed(c, 'item', { name: 'Cloak of Resistance +2', specials: [{ name: '', effects: [{ target: 'save.all', type: 'resistance', value: 2 }] }] });
+    embed(c, 'feat', { name: 'Steady Mind', specials: [{ name: '', effects: [{ target: 'save.will', type: 'insight', value: 1 }] }] });
+    c.wealth.items = [{ id: 'k1', name: 'Cloak of Resistance +2', qty: 1, category: 'Wondrous item' }];
+    c.feats = [{ name: 'Steady Mind', slot: 'other' }];
+    c.saves = { misc: { will: -1 } };
+    const will = derive(c, srd).saves.will;
+    t.eq([will.parts.resistance, will.parts.other, will.parts.temp, will.bonuses], [2, 1, -1, 2]);
+  });
+
   return cases;
 }

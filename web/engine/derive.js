@@ -222,11 +222,16 @@ export function derive(stored, rules, options = {}) {
     const base = summary.baseSaves[save];
     const abilityBonus = abilities[ability].mod;
     const bonuses = bonusToWithAll(resolved, `save.${save}`, 'save.all');
+    // What the bonuses are made of, for the sheet to show: a resistance bonus
+    // (a cloak), everything else that lasts, and the temporary modifier.
+    const resistance = (resolved[`save.${save}`]?.byType?.resistance || 0) + (resolved['save.all']?.byType?.resistance || 0);
+    const temp = num(character.saves?.misc?.[save]);
     saves[save] = {
       base,
       ability: abilityBonus,
       abilityKey: ability,
       bonuses,
+      parts: { resistance, other: bonuses - resistance - temp, temp },
       conditions: conditionsFor(resolved, `save.${save}`, 'save.all'),
       total: base + abilityBonus + bonuses,
     };

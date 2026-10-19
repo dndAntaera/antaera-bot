@@ -23,7 +23,7 @@ import { isHeld, isLockedPath, lockedParts, restoreLocked } from './engine/locks
 import {
   identityPanel, levelsPanel, abilitiesPanel, combatPanel, skillsPanel,
   houserulesPanel, textPanel, trackersPanel, hitPointsPanel, startingWealthPanel,
-  effectsPanel, contentPanel, paintEffects, paintConditions, paintContent, paintAcTable,
+  effectsPanel, contentPanel, paintEffects, paintConditions, paintContent, paintAcTable, paintSources,
 } from './ui/sheet.js';
 import { referenceNow, lookUp } from './reference.js';
 import { SHEET_PAGES, pageFor, pageForNotice, sheetTabs } from './ui/sheet-pages.js';
@@ -1330,6 +1330,7 @@ function recompute() {
   paintEffects(root, app.derived);
   paintAcTable(root, app.derived);
   paintConditions(root, app.derived);
+  paintSources(root, app.derived);
   paintContent(root, app, library);
   paintWizard(root, app);
   holdChoices(root);

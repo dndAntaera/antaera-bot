@@ -369,7 +369,7 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 
 .ability-grid {
   display: grid;
-  grid-template-columns: 6.5rem repeat(5, minmax(3.2rem, 1fr)) 4rem 3.5rem;
+  grid-template-columns: 6.5rem repeat(7, minmax(3.2rem, 1fr)) 4rem 3.5rem;
   gap: var(--sp-1) var(--sp-2);
   align-items: center;
 }
@@ -410,7 +410,7 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 
 .save-grid {
   display: grid;
-  grid-template-columns: 6rem repeat(4, minmax(3.2rem, 4rem)) 4.5rem;
+  grid-template-columns: 6rem repeat(5, minmax(3.2rem, 4rem)) 4.5rem;
   gap: var(--sp-1) var(--sp-2);
   align-items: center;
 }
@@ -1496,6 +1496,14 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
 .conditions { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: .1rem; }
 .conditions:empty { display: none; }
 .conditions li { font-size: var(--text-small); font-style: italic; color: var(--ink-soft); }
+
+/* A lasting bonus is shown, not typed: it is changed in its source, which is
+   named on it and listed under its grid. */
+.out.lasting { cursor: help; color: var(--ink-soft); }
+.bonus-sources { list-style: none; margin: var(--sp-2) 0 0; padding: 0; font-size: var(--text-small); color: var(--ink-soft); }
+.bonus-sources:empty { display: none; }
+.bonus-sources-head { font-size: var(--text-tiny); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); }
+.bonus-sources .is-suppressed { color: var(--ink-faint); text-decoration: line-through; }
 .conditions li::before { content: "\2020  "; color: var(--ink-faint); font-style: normal; }
 .cond-mark { color: var(--accent-dark); cursor: help; }
 
@@ -1812,9 +1820,16 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
   /* Every flexible column becomes minmax(0, 1fr) so it can actually shrink.
      minmax(2.8rem, 1fr) cannot: the minimum wins and the grid overflows its
      panel, which is how a phone ends up with numbers under the margin. */
-  .ability-grid { grid-template-columns: 2.6rem repeat(5, minmax(0, 1fr)) 2.9rem 2.4rem; }
+  .ability-grid { grid-template-columns: 2.6rem repeat(4, minmax(0, 1fr)) 2.9rem 2.4rem; }
   .ability-short { display: inline; }
   .ability-full { display: none; }
+
+  /* The lasting bonuses give up their columns to the ones in daily use; the
+     list under the grid still names every one, and where it comes from. */
+  .ability-grid > .label:nth-child(5),
+  .ability-grid > .label:nth-child(6),
+  .ability-grid > .label:nth-child(7),
+  .ability-grid .out.lasting { display: none; }
 
   .skill-head, .skill-row {
     grid-template-columns: .9rem minmax(0, 1fr) 2.7rem 2.4rem minmax(0, 2.8rem) minmax(0, 2.8rem) 1.2rem;
@@ -1837,6 +1852,7 @@ textarea.text-block { width: 100%; resize: vertical; line-height: var(--leading)
   .levels-head .label:nth-child(5) { display: none; }
 
   .save-grid { grid-template-columns: 4.4rem repeat(4, minmax(0, 1fr)) 3rem; }
+  .save-grid > .label:nth-child(5), .save-grid .out[data-out$=".parts.other"] { display: none; }
   .taint-grid { grid-template-columns: 4.6rem minmax(0, 3.2rem) 2.6rem minmax(0, 1fr) 2.6rem; }
   .taint-grid > .label:nth-child(6), .taint-grid > .hint { display: none; }
 

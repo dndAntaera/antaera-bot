@@ -245,7 +245,9 @@ export function abilitiesPanel(app) {
     h('span.label', { text: 'Base' }),
     h('span.label', { text: 'Race' }),
     h('span.label', { text: 'Levels' }),
-    h('span.label', { text: 'Effects', title: 'What items, feats, spells in effect and the rest add, already stacked.' }),
+    h('span.label', { text: 'Enh.', title: 'Enhancement bonus, from an item or a spell. Shown here; changed in its source.' }),
+    h('span.label', { text: 'Inherent', title: 'Inherent bonus, from a wish or a tome. Shown here; changed in its source.' }),
+    h('span.label', { text: 'Other', title: 'Any other lasting bonus or penalty. Shown here; changed in its source.' }),
     h('span.label', { text: 'Temp', title: 'A temporary modifier: ability damage, a drain, a rage, a spell cast by someone else.' }),
     h('span.label', { text: 'Score' }),
     h('span.label', { text: 'Mod' }),
@@ -258,7 +260,9 @@ export function abilitiesPanel(app) {
       baseScoreInput(app, key, method, placement, changed),
       out(`abilities.${key}.parts.racial`, { format: 'signed' }),
       out(`abilities.${key}.parts.levelUp`, { format: 'signed' }),
-      out(`abilities.${key}.parts.bonuses`, { format: 'signed' }),
+      sourced(out(`abilities.${key}.parts.enhancement`, { format: 'signed', className: 'lasting' }), [`ability.${key}`], ['enhancement']),
+      sourced(out(`abilities.${key}.parts.inherent`, { format: 'signed', className: 'lasting' }), [`ability.${key}`], ['inherent']),
+      sourced(out(`abilities.${key}.parts.otherBonuses`, { format: 'signed', className: 'lasting' }), [`ability.${key}`], ['enhancement', 'inherent'], true),
       field(`abilities.temp.${key}`, c.abilities?.temp?.[key], { type: 'int', className: 'temp' }),
       out(`abilities.${key}.total`, { big: true }),
       out(`abilities.${key}.mod`, { big: true, format: 'signed' }))));
@@ -290,9 +294,10 @@ export function abilitiesPanel(app) {
   }),
   increaseLevels.length ? null : h('span.hint', { text: 'The first ability increase comes at 4th level.' }));
 
+  const sources = sourcesList('abilities');
   return panel('abilities', 'Abilities', typedBefore(app, 'abilities', () => app.rebuildPanel('abilities')), methodRow,
     method === 'rolled' ? roller(app, placement, changed) : null,
-    grid,
+    grid, sources,
     h('details.aside', { open: increaseLevels.length > 0 },
       h('summary', 'Level increases'), levelUpRow));
 }
@@ -444,7 +449,7 @@ function hitPointsBlock(app) {
       labelled('Current', field('hp.current', c.hp?.current, { type: 'int', width: '4.5rem' })),
       labelled('Temp', field('hp.temp', c.hp?.temp, { type: 'int', width: '4rem' })),
       labelled('Nonlethal', field('hp.nonlethal', c.hp?.nonlethal, { type: 'int', width: '4rem' })),
-      total('From effects', 'hp.effectBonus', { format: 'signed' }),
+      sourced(total('From effects', 'hp.effectBonus', { format: 'signed' }), ['hp']),
     ),
     h('p.hint', { text: lock ? `${lock} A roll is entered beside its level.` : 'A roll is entered beside its level.' }),
     h('div.hp-levels', app.derived.hp.perLevel.map((l, i) => h('div.hp-level',
@@ -479,7 +484,7 @@ export function combatPanel(app) {
       total('Spell failure', 'ac.arcaneSpellFailure'),
       total('Initiative', 'initiative.total', { format: 'signed' }),
       total('Speed', 'speed'),
-      total('Spell resistance', 'spellResistance')),
+      sourced(total('Spell resistance', 'spellResistance'), ['spellResistance'])),
     h('ul.conditions', { dataset: { conditionsFor: 'ac' } }));
 
   const attackBlock = h('div.block',
@@ -504,19 +509,38 @@ export function combatPanel(app) {
       h('span.label', { text: '' }),
       h('span.label', { text: 'Base' }),
       h('span.label', { text: 'Ability' }),
-      h('span.label', { text: 'Effects', title: 'Everything from race, feats, items and spells in effect, already stacked - and the Temp beside it.' }),
+      h('span.label', { text: 'Resistance', title: 'A resistance bonus, like a cloak of resistance. Shown here; changed in its source.' }),
+      h('span.label', { text: 'Other', title: 'Every other lasting bonus: race, feats, items, spells in effect. Shown here; changed in its source.' }),
       h('span.label', { text: 'Temp', title: 'A temporary modifier to the save.' }),
       h('span.label', { text: 'Total' }),
       SAVES.map(([key, name]) => frag(
         h('span.ability-name', { text: name }),
         out(`saves.${key}.base`, { format: 'signed' }),
         out(`saves.${key}.ability`, { format: 'signed' }),
-        out(`saves.${key}.bonuses`, { format: 'signed' }),
+        sourced(out(`saves.${key}.parts.resistance`, { format: 'signed', className: 'lasting' }), [`save.${key}`, 'save.all'], ['resistance']),
+        sourced(out(`saves.${key}.parts.other`, { format: 'signed', className: 'lasting' }), [`save.${key}`, 'save.all'], ['resistance'], true),
         field(`saves.misc.${key}`, c.saves?.misc?.[key], { type: 'int' }),
         out(`saves.${key}.total`, { big: true, format: 'signed' })))),
+    sourcesList('saves'),
     h('ul.conditions', { dataset: { conditionsFor: 'save' } }));
 
   return panel('combat', 'Combat', hpBlock, typedBefore(app, 'hp', () => app.rebuildPanel('combat')), acBlock, attackBlock, saveBlock);
+}
+
+/**
+ * A number that is a lasting bonus, marked with what it counts, so its sources
+ * can be named on it (paintSources): the targets it adds up, and the bonus
+ * types it is - or, with `except`, every type but those.
+ */
+function sourced(el, targets, types = null, except = false) {
+  el.dataset.sources = targets.join(',');
+  if (types) el.dataset.sourceTypes = `${except ? '-' : ''}${types.join(',')}`;
+  return el;
+}
+
+/** Where the lasting bonuses of one grid come from, listed under it (paintSources). */
+function sourcesList(which) {
+  return h('ul.bonus-sources', { dataset: { sourcesFor: which }, 'aria-label': 'Where these bonuses come from' });
 }
 
 /**
@@ -819,6 +843,41 @@ export function paintEffects(root, derived) {
         b.applied.map((e) => h('li', { text: `${sign(e.value)} ${e.type} - ${e.source}` })),
         b.suppressed.map((e) => h('li.is-suppressed', { text: `${sign(e.value)} ${e.type} - ${e.source}`, title: `Does not stack with a larger ${e.type} bonus.` })),
         b.conditional.map((e) => h('li.is-conditional', { text: `${sign(e.value)} ${e.type} ${e.condition} - ${e.source}`, title: 'Only in the situation described, so not in the total.' }))))))))));
+}
+
+/**
+ * Name where each lasting bonus comes from: on the number, as its title, and
+ * in the list under its grid - "+4 enhancement Strength, Belt of Giant
+ * Strength". The temporary modifier a player types is its own box, so it is
+ * left out; a bonus that does not stack, beaten by a larger one, is said so.
+ */
+export function paintSources(root, derived) {
+  const resolved = derived.effects.resolved;
+  const sign = (n) => (n < 0 ? String(n) : `+${n}`);
+  const lasting = (e) => e.source !== 'temporary modifier';
+  const line = (e, what) => `${sign(e.value)}${e.type && e.type !== 'untyped' ? ` ${e.type}` : ''}${what ? ` ${what}` : ''} - ${e.source}`;
+
+  for (const el of root.querySelectorAll('[data-sources]')) {
+    const targets = el.dataset.sources.split(',');
+    const spec = el.dataset.sourceTypes || '';
+    const except = spec.startsWith('-');
+    const types = spec ? spec.replace(/^-/, '').split(',') : null;
+    const fits = (e) => !types || (except ? !types.includes(e.type) : types.includes(e.type));
+    const found = targets.flatMap((t) => resolved[t]?.applied || []).filter((e) => lasting(e) && fits(e));
+    el.title = found.length ? found.map((e) => line(e)).join('\n') : 'Nothing gives one.';
+  }
+
+  const GROUPS = {
+    abilities: ABILITIES.map((key) => [`ability.${key}`, ABILITY_NAMES[key]]),
+    saves: [['save.all', 'all saves'], ['save.fort', 'Fortitude'], ['save.ref', 'Reflex'], ['save.will', 'Will']],
+  };
+  for (const el of root.querySelectorAll('[data-sources-for]')) {
+    const items = (GROUPS[el.dataset.sourcesFor] || []).flatMap(([target, what]) => [
+      ...(resolved[target]?.applied || []).filter(lasting).map((e) => h('li', { text: line(e, what) })),
+      ...(resolved[target]?.suppressed || []).filter(lasting).map((e) => h('li.is-suppressed', { text: `${line(e, what)} (does not stack with a larger ${e.type} bonus)` })),
+    ]);
+    refill(el, items.length ? [h('li.bonus-sources-head', { text: 'Where they come from' }), items] : []);
+  }
 }
 
 /** The conditional bonuses listed beside the numbers they would change. */
