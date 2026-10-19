@@ -43,7 +43,7 @@ export * from './locks.js';
 export * from './rolls.js';
 export * from './specials.js';
 export * from './creatures.js';
-export { derive } from './derive.js';
+export { derive, typedBonusesBefore } from './derive.js';
 export { blankCharacter, migrate, renumberLevels, SCHEMA, DEFAULT_RULESET } from './character.js';
 
 /** The rulesets that ship with the app, in the order the toggle lists them. */

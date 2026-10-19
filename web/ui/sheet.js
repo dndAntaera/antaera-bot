@@ -20,6 +20,7 @@ import {
 import { describeTarget } from '../engine/effects.js';
 import { nameField, copyToUserContent } from './names.js';
 import { CONTENT_TYPES, CONTENT_KINDS, unusedContent } from '../engine/library.js';
+import { typedBonusesBefore } from '../engine/derive.js';
 
 const SAVES = [['fort', 'Fortitude'], ['ref', 'Reflex'], ['will', 'Will']];
 /** How a custom character's scores are made: bought, rolled, or entered by hand. */
@@ -244,10 +245,8 @@ export function abilitiesPanel(app) {
     h('span.label', { text: 'Base' }),
     h('span.label', { text: 'Race' }),
     h('span.label', { text: 'Levels' }),
-    h('span.label', { text: 'Item', title: 'Enhancement bonus' }),
-    h('span.label', { text: 'Inherent' }),
-    h('span.label', { text: 'Misc' }),
-    h('span.label', { text: 'Temp' }),
+    h('span.label', { text: 'Effects', title: 'What items, feats, spells in effect and the rest add, already stacked.' }),
+    h('span.label', { text: 'Temp', title: 'A temporary modifier: ability damage, a drain, a rage, a spell cast by someone else.' }),
     h('span.label', { text: 'Score' }),
     h('span.label', { text: 'Mod' }),
     ABILITIES.map((key) => frag(
@@ -259,9 +258,7 @@ export function abilitiesPanel(app) {
       baseScoreInput(app, key, method, placement, changed),
       out(`abilities.${key}.parts.racial`, { format: 'signed' }),
       out(`abilities.${key}.parts.levelUp`, { format: 'signed' }),
-      field(`abilities.enhancement.${key}`, c.abilities?.enhancement?.[key], { type: 'int', title: 'An enhancement bonus. Does not stack with an item that grants one.' }),
-      field(`abilities.inherent.${key}`, c.abilities?.inherent?.[key], { type: 'int' }),
-      field(`abilities.misc.${key}`, c.abilities?.misc?.[key], { type: 'int' }),
+      out(`abilities.${key}.parts.bonuses`, { format: 'signed' }),
       field(`abilities.temp.${key}`, c.abilities?.temp?.[key], { type: 'int', className: 'temp' }),
       out(`abilities.${key}.total`, { big: true }),
       out(`abilities.${key}.mod`, { big: true, format: 'signed' }))));
@@ -293,7 +290,7 @@ export function abilitiesPanel(app) {
   }),
   increaseLevels.length ? null : h('span.hint', { text: 'The first ability increase comes at 4th level.' }));
 
-  return panel('abilities', 'Abilities', methodRow,
+  return panel('abilities', 'Abilities', typedBefore(app, 'abilities', () => app.rebuildPanel('abilities')), methodRow,
     method === 'rolled' ? roller(app, placement, changed) : null,
     grid,
     h('details.aside', { open: increaseLevels.length > 0 },
@@ -443,7 +440,6 @@ function hitPointsBlock(app) {
     row(
       labelled('After 1st level', select('hp.method', c.hp?.method,
         [['average', 'average'], ['roll', 'rolled']], { title: lock })),
-      labelled('Bonus', field('hp.bonus', c.hp?.bonus, { type: 'int', width: '4rem', title: 'Anything flat that is not already an effect.' })),
       total('Total', 'hp.total', { big: true }),
       labelled('Current', field('hp.current', c.hp?.current, { type: 'int', width: '4.5rem' })),
       labelled('Temp', field('hp.temp', c.hp?.temp, { type: 'int', width: '4rem' })),
@@ -475,14 +471,9 @@ export function combatPanel(app) {
     h('h3', 'Armor Class'),
     h('div.table-scroll', h('table.ac-table', { dataset: { acHost: '' } })),
     h('p.hint', {}, 'Armor and shield are what is in their slots on the ', h('a', { href: `#/sheet/${c.id}/equipment`, text: 'Equipment page' }), '. Two bonuses of one type give the better one; dodge and untyped bonuses stack.'),
-    h('details.aside',
-      h('summary', 'Bonuses typed on the sheet'),
-      row(
-        labelled('Natural', field('gear.natural', c.gear?.natural, { type: 'int', width: '3.5rem' })),
-        labelled('Deflection', field('gear.deflection', c.gear?.deflection, { type: 'int', width: '3.5rem' })),
-        labelled('Dodge', field('gear.dodge', c.gear?.dodge, { type: 'int', width: '3.5rem' })),
-        labelled('Misc', field('gear.misc', c.gear?.misc, { type: 'int', width: '3.5rem' })),
-        labelled('Spell resistance', field('combat.spellResistance', c.combat?.spellResistance, { type: 'int', width: '3.5rem' })))),
+    row(
+      labelled('Temp', field('gear.misc', c.gear?.misc, { type: 'int', width: '3.5rem', title: 'A temporary modifier to Armor Class, counted in all three: a spell cast by someone else, a penalty for the moment.' })),
+      h('span.hint', { text: 'Lasting bonuses - natural armor, deflection, a ring - come from items, feats and User Content.' })),
     h('div.totals',
       total('Check penalty', 'ac.acp', { title: 'Armor and shield, or a heavy load: the worse.' }),
       total('Spell failure', 'ac.arcaneSpellFailure'),
@@ -494,10 +485,10 @@ export function combatPanel(app) {
   const attackBlock = h('div.block',
     h('h3', 'Attack bonuses'),
     row(
-      labelled('Melee misc', field('combat.misc.melee', c.combat?.misc?.melee, { type: 'int', width: '3.5rem' })),
-      labelled('Ranged misc', field('combat.misc.ranged', c.combat?.misc?.ranged, { type: 'int', width: '3.5rem' })),
-      labelled('Grapple misc', field('combat.misc.grapple', c.combat?.misc?.grapple, { type: 'int', width: '3.5rem' })),
-      labelled('Initiative misc', field('combat.initiativeMisc', c.combat?.initiativeMisc, { type: 'int', width: '3.5rem' })),
+      labelled('Melee temp', field('combat.misc.melee', c.combat?.misc?.melee, { type: 'int', width: '3.5rem', title: 'A temporary modifier to melee attacks.' })),
+      labelled('Ranged temp', field('combat.misc.ranged', c.combat?.misc?.ranged, { type: 'int', width: '3.5rem', title: 'A temporary modifier to ranged attacks.' })),
+      labelled('Grapple temp', field('combat.misc.grapple', c.combat?.misc?.grapple, { type: 'int', width: '3.5rem', title: 'A temporary modifier to grapple checks.' })),
+      labelled('Initiative temp', field('combat.initiativeMisc', c.combat?.initiativeMisc, { type: 'int', width: '3.5rem', title: 'A temporary modifier to initiative.' })),
     ),
     h('div.totals',
       total('Melee', 'attacks.melee.routine'),
@@ -513,21 +504,47 @@ export function combatPanel(app) {
       h('span.label', { text: '' }),
       h('span.label', { text: 'Base' }),
       h('span.label', { text: 'Ability' }),
-      h('span.label', { text: 'Resistance', title: 'A resistance bonus, like a cloak of resistance. Does not stack with another one.' }),
-      h('span.label', { text: 'Misc' }),
-      h('span.label', { text: 'Effects', title: 'Everything from race, feats and items, already stacked - including the two fields beside it.' }),
+      h('span.label', { text: 'Effects', title: 'Everything from race, feats, items and spells in effect, already stacked - and the Temp beside it.' }),
+      h('span.label', { text: 'Temp', title: 'A temporary modifier to the save.' }),
       h('span.label', { text: 'Total' }),
       SAVES.map(([key, name]) => frag(
         h('span.ability-name', { text: name }),
         out(`saves.${key}.base`, { format: 'signed' }),
         out(`saves.${key}.ability`, { format: 'signed' }),
-        field(`saves.magic.${key}`, c.saves?.magic?.[key], { type: 'int' }),
-        field(`saves.misc.${key}`, c.saves?.misc?.[key], { type: 'int' }),
         out(`saves.${key}.bonuses`, { format: 'signed' }),
+        field(`saves.misc.${key}`, c.saves?.misc?.[key], { type: 'int' }),
         out(`saves.${key}.total`, { big: true, format: 'signed' })))),
     h('ul.conditions', { dataset: { conditionsFor: 'save' } }));
 
-  return panel('combat', 'Combat', hpBlock, acBlock, attackBlock, saveBlock);
+  return panel('combat', 'Combat', hpBlock, typedBefore(app, 'hp', () => app.rebuildPanel('combat')), acBlock, attackBlock, saveBlock);
+}
+
+/**
+ * Lasting bonuses typed into boxes a sheet once had: what they are, which
+ * still count, and a button to clear them once an item, a feat or other User
+ * Content gives them instead.
+ *
+ * @param field  'abilities' for the ability scores, 'hp' for the rest
+ */
+function typedBefore(app, field, redraw) {
+  const c = app.character;
+  const said = typedBonusesBefore(c).filter(([f]) => f === field).map(([, words]) => words);
+  if (!said.length) return null;
+  const clear = () => {
+    if (field === 'abilities') {
+      for (const key of ['enhancement', 'inherent', 'misc']) if (c.abilities) delete c.abilities[key];
+    } else {
+      if (c.gear) for (const key of ['natural', 'deflection', 'dodge']) delete c.gear[key];
+      if (c.saves) delete c.saves.magic;
+      if (c.combat) delete c.combat.spellResistance;
+      if (c.hp) delete c.hp.bonus;
+    }
+    app.recompute();
+    redraw();
+  };
+  return h('div.typed-before',
+    h('p.hint', { text: `Typed onto the sheet before, and still counted: ${said.join('; ')}. A lasting bonus comes from an item, a feat or other User Content now - clear these once it does.` }),
+    button('Clear these', clear, { subtle: true, danger: true, title: 'Take them off the sheet. What gives them should be in its User Content entry first.' }));
 }
 
 const AC_TYPE_LABELS = {
@@ -617,7 +634,7 @@ export function skillsPanel(app) {
       h('span.label', { text: 'Total' }),
       h('span.label', { text: 'Ability' }),
       h('span.label', { text: app.derived.skills.system === 'maxRanks' ? 'Known' : 'Ranks' }),
-      h('span.label', { text: 'Misc' }),
+      h('span.label', { text: 'Temp', title: 'A temporary modifier to the check.' }),
       h('span.label', { text: 'Effects', title: 'From race, feats and items, already stacked.' }),
       h('span.label', { text: 'Max' }),
       h('span.label', { text: 'Cost' })),

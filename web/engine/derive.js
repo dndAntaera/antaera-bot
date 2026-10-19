@@ -60,20 +60,47 @@ const SAVE_ABILITY = { fort: 'con', ref: 'dex', will: 'wis' };
  * ability table and a belt carried as an item do not both count.
  */
 function sheetEffects(character) {
-  const source = 'typed on the sheet';
+  // What a sheet takes typed in is temporary: a save's Temp. A permanent bonus
+  // comes from content now; one typed onto a sheet before still counts, under
+  // its own name, until it is cleared.
+  const before = 'typed on the sheet before';
   const out = [];
   const a = character.abilities || {};
   for (const key of ABILITIES) {
-    out.push({ target: `ability.${key}`, type: 'enhancement', value: num(a.enhancement?.[key]), source });
-    out.push({ target: `ability.${key}`, type: 'inherent', value: num(a.inherent?.[key]), source });
-    out.push({ target: `ability.${key}`, type: 'untyped', value: num(a.misc?.[key]), source });
+    out.push({ target: `ability.${key}`, type: 'enhancement', value: num(a.enhancement?.[key]), source: before });
+    out.push({ target: `ability.${key}`, type: 'inherent', value: num(a.inherent?.[key]), source: before });
+    out.push({ target: `ability.${key}`, type: 'untyped', value: num(a.misc?.[key]), source: before });
   }
   for (const save of ['fort', 'ref', 'will']) {
-    out.push({ target: `save.${save}`, type: 'resistance', value: num(character.saves?.magic?.[save]), source });
-    out.push({ target: `save.${save}`, type: 'untyped', value: num(character.saves?.misc?.[save]), source });
+    out.push({ target: `save.${save}`, type: 'resistance', value: num(character.saves?.magic?.[save]), source: before });
+    out.push({ target: `save.${save}`, type: 'untyped', value: num(character.saves?.misc?.[save]), source: 'temporary modifier' });
   }
   out.push(...gearEffects(character.gear || {}));
   return out.filter((e) => e.value !== 0);
+}
+
+/**
+ * Permanent bonuses typed into boxes a sheet once had - an ability's item,
+ * inherent and misc bonuses, natural armor, deflection, dodge, a save's
+ * resistance bonus, spell resistance, bonus hit points - as [field, words].
+ */
+export function typedBonusesBefore(character) {
+  const out = [];
+  const a = character.abilities || {};
+  const sign = (n) => (n < 0 ? String(n) : `+${n}`);
+  for (const key of ABILITIES) {
+    const parts = [['enhancement', 'enhancement'], ['inherent', 'inherent'], ['misc', 'misc']]
+      .map(([k, label]) => [label, num(a[k]?.[key])]).filter(([, v]) => v);
+    if (parts.length) out.push(['abilities', `${key.toUpperCase()} ${parts.map(([label, v]) => `${sign(v)} ${label}`).join(', ')}`]);
+  }
+  const gear = character.gear || {};
+  const ac = [['natural', 'natural armor'], ['deflection', 'deflection'], ['dodge', 'dodge']].map(([k, label]) => [label, num(gear[k])]).filter(([, v]) => v);
+  if (ac.length) out.push(['hp', `Armor Class ${ac.map(([label, v]) => `${sign(v)} ${label}`).join(', ')}`]);
+  const saves = ['fort', 'ref', 'will'].map((k) => [k, num(character.saves?.magic?.[k])]).filter(([, v]) => v);
+  if (saves.length) out.push(['hp', `Saves ${saves.map(([k, v]) => `${sign(v)} resistance (${k})`).join(', ')}`]);
+  if (num(character.combat?.spellResistance)) out.push(['hp', `Spell resistance ${num(character.combat.spellResistance)}`]);
+  if (num(character.hp?.bonus)) out.push(['hp', `${sign(num(character.hp.bonus))} hit points`]);
+  return out;
 }
 
 /**
@@ -552,6 +579,10 @@ function notices(character, d, rules) {
   ];
   for (const name of typed) {
     add('warn', `${name} has bonuses or uses typed onto the sheet. Write them into its User Content entry instead (Copy into User Content), where they belong.`, 'content');
+  }
+  // Permanent bonuses typed into the boxes a sheet no longer has: still counted, until cleared.
+  for (const [field, what] of typedBonusesBefore(character)) {
+    add('warn', `${what} typed onto the sheet before: still counted. A lasting bonus comes from an item, feat or other User Content now; clear this once it does.`, field);
   }
   if (d.gestalt) {
     (character.levels || []).forEach((row, i) => {

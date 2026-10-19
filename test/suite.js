@@ -20,7 +20,7 @@ import {
   itemFromReference, inventoryTotals, carryingCapacity, attackFor, migrateInventory, slotChoices, usableContent, buyItem, removeItem,
   lockedParts, lockChanges, restoreLocked, isLockedPath, lockedSummary,
   parseDice, rollDice, rollSheet, findRoll, rollFor, rollChoices,
-  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS, listLevels, GRANTS_FEAT,
+  withSpecials, specialDC, slotKeyFor, creatureKind, CONTENT_KINDS, listLevels, GRANTS_FEAT, typedBonusesBefore,
 } from '../web/engine/index.js';
 
 export function buildSuite(data) {
@@ -1735,6 +1735,24 @@ export function buildSuite(data) {
     t.ok(!d.notices.some((n) => /neither the SRD nor User Content|typed onto the sheet/.test(n.text)), 'all of it exists, in User Content');
     const spot = rollSheet(d, c).skills.find((s) => s.name === 'Spot');
     t.eq(spot.total, d.skills.lines.find((l) => l.name === 'Spot').total, '/roll reads the same total, the trait included');
+  });
+
+  test('temporary modifiers stay on the sheet; lasting bonuses typed in before still count, and are flagged', (t) => {
+    const c = characterWith(srd, [['Fighter']]);
+    c.abilities.base = { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+    c.saves = { misc: { fort: 2 } };
+    c.gear = { ...(c.gear || {}), misc: 1 };
+    const temp = derive(c, srd);
+    t.eq([temp.saves.fort.bonuses, temp.ac.total], [2, 11], 'a save’s and Armor Class’s Temp count');
+    t.eq(temp.effects.resolved['save.fort'].applied[0].source, 'temporary modifier');
+    t.eq(typedBonusesBefore(c), [], 'nothing typed in before');
+    c.abilities.enhancement = { str: 4 };
+    c.gear.deflection = 2;
+    c.hp = { ...(c.hp || {}), bonus: 5 };
+    const old = derive(c, srd);
+    t.eq([old.abilities.str.total, old.ac.total], [14, 13], 'still counted');
+    t.eq(typedBonusesBefore(c).map(([field]) => field), ['abilities', 'hp', 'hp']);
+    t.ok(old.notices.some((n) => n.level === 'warn' && /typed onto the sheet before/.test(n.text)));
   });
 
   return cases;

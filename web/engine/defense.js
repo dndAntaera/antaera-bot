@@ -31,14 +31,16 @@ export function armorCheckPenalty(gear) {
  * better one counts, as the rules say.
  */
 export function gearEffects(gear) {
-  const source = 'typed on the sheet';
+  // Natural armor, deflection and dodge typed onto a sheet before they came
+  // only from content; the temporary modifier is what a sheet still takes.
+  const before = 'typed on the sheet before';
   const list = [
     { target: 'ac', type: 'armor', value: num(gear.armor?.bonus), source: gear.armor?.name || 'armor' },
     { target: 'ac', type: 'shield', value: num(gear.shield?.bonus), source: gear.shield?.name || 'shield' },
-    { target: 'ac', type: 'natural', value: num(gear.natural), source },
-    { target: 'ac', type: 'deflection', value: num(gear.deflection), source },
-    { target: 'ac', type: 'dodge', value: num(gear.dodge), source },
-    { target: 'ac', type: 'untyped', value: num(gear.misc), source },
+    { target: 'ac', type: 'natural', value: num(gear.natural), source: before },
+    { target: 'ac', type: 'deflection', value: num(gear.deflection), source: before },
+    { target: 'ac', type: 'dodge', value: num(gear.dodge), source: before },
+    { target: 'ac', type: 'untyped', value: num(gear.misc), source: 'temporary modifier' },
   ];
   return list.filter((e) => e.value !== 0);
 }
